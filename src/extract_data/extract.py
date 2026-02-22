@@ -39,7 +39,7 @@ class Extract(scrapy.Spider, ABC):
         date=None,
         tags=None,
         metadata=None,
-    ):
+    ) -> SriItem:
         """
         Helper method to create a SriItem with common fields pre-filled.
         """

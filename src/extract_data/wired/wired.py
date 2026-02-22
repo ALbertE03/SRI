@@ -1,8 +1,16 @@
 import requests
 from bs4 import BeautifulSoup
 import scrapy
+from ..extract import Extract
 
-class Wired(scrapy.Spider):
+
+class Wired(Extract):
     name = "wired"
-    url = "https://es.wired.com"
-    pass
+    source = "wired"
+    start_urls = ["https://es.wired.com"]
+
+    def parse(self, response):
+        """
+        Logic for parsing Wired articles.
+        """
+        pass

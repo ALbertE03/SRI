@@ -1,8 +1,16 @@
 import requests
 from bs4 import BeautifulSoup
 import scrapy
+from ..extract import Extract
 
-class Xataka(scrapy.Spider):
+
+class Xataka(Extract):
     name = "xataka"
-    url = "https://www.xataka.com/"
-    pass
+    source = "xataka"
+    start_urls = ["https://www.xataka.com/"]
+
+    def parse(self, response):
+        """
+        Logic for parsing Xataka articles.
+        """
+        pass

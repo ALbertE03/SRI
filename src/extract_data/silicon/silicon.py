@@ -1,8 +1,16 @@
 import requests
 from bs4 import BeautifulSoup
 import scrapy
+from ..extract import Extract
 
-class Silicon(scrapy.Spider):
+
+class Silicon(Extract):
     name = "silicon"
-    url = "https://www.silicon.es/"
-    pass
+    source = "silicon"
+    start_urls = ["https://www.silicon.es/"]
+
+    def parse(self, response):
+        """
+        Logic for parsing Silicon articles.
+        """
+        pass
