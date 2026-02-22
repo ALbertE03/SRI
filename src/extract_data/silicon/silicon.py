@@ -9,7 +9,7 @@ class Silicon(Extract):
     source = "silicon"
     start_urls = ["https://www.silicon.es/"]
 
-    def parse(self, response):
+    async def parse(self, response):
         """
         Logic for parsing Silicon articles.
         """

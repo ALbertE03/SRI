@@ -9,7 +9,7 @@ class Wired(Extract):
     source = "wired"
     start_urls = ["https://es.wired.com"]
 
-    def parse(self, response):
+    async def parse(self, response):
         """
         Logic for parsing Wired articles.
         """

@@ -2,7 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 import scrapy
 from abc import ABC, abstractmethod
-from .items import SriItem
+from .items import Item
 
 
 class Extract(scrapy.Spider, ABC):
@@ -24,9 +24,9 @@ class Extract(scrapy.Spider, ABC):
             )
 
     @abstractmethod
-    def parse(self, response):
+    async def parse(self, response):
         """
-        Standard parse method to be implemented by children.
+        Standard async parse method to be implemented by children.
         """
         pass
 
@@ -39,11 +39,11 @@ class Extract(scrapy.Spider, ABC):
         date=None,
         tags=None,
         metadata=None,
-    ) -> SriItem:
+    ) -> Item:
         """
-        Helper method to create a SriItem with common fields pre-filled.
+        Helper method to create a Item with common fields pre-filled.
         """
-        item = SriItem()
+        item = Item()
         item["url"] = response.url
         item["source"] = self.source
         item["title"] = title

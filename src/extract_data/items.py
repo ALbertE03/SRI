@@ -1,7 +1,7 @@
 import scrapy
 
 
-class SriItem(scrapy.Item):
+class Item(scrapy.Item):
 
     url = scrapy.Field()
     title = scrapy.Field()

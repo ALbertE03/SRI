@@ -9,8 +9,8 @@ class GitHub(Extract):
     name = "github"
     source = "github"
 
-    def parse(self, response):
+    async def parse(self, response):
         """
-        Logic for parsing GitHub API or pages.
+        Logic for parsing GitHub articles.
         """
         pass
