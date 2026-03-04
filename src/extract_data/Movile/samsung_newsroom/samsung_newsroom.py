@@ -1,182 +1,170 @@
-import requests
+import re
+import xml.etree.ElementTree as ET
+from email.utils import parsedate_to_datetime
 from bs4 import BeautifulSoup
-import scrapy
 from ...extract import Extract
+
+# XML namespace URIs used in Samsung's WordPress RSS feed
+_NS = {
+    "dc":      "http://purl.org/dc/elements/1.1/",
+    "content": "http://purl.org/rss/1.0/modules/content/",
+    "media":   "http://search.yahoo.com/mrss/",
+    "atom":    "http://www.w3.org/2005/Atom",
+}
 
 
 class SamsungNewsroom(Extract):
     """
-    Spider for Samsung Global Newsroom.
-    Source: https://news.samsung.com/global/
-    Content: Official Samsung press releases about Galaxy smartphones,
-             tablets, wearables, One UI, Exynos chips, Galaxy AI, etc.
+    Spider for Samsung Global Newsroom via RSS feed.
+
+    Samsung's main listing page (news.samsung.com/global/) is behind
+    Cloudflare bot-protection and cannot be scraped directly.
+    The RSS feed at /global/feed is publicly accessible and returns
+    full article content inside <content:encoded>, so all fields are
+    extracted without following article links.
+
+    Source: https://news.samsung.com/global/feed
+    Content: Official Samsung press releases — Galaxy smartphones,
+             tablets, wearables, One UI, Exynos, Galaxy AI, etc.
     """
 
     name = "samsung_newsroom"
     source = "samsung_newsroom"
-    start_urls = [
-        "https://news.samsung.com/global/",
-    ]
+    start_urls = ["https://news.samsung.com/global/feed"]
+
+    # ------------------------------------------------------------------ #
+    #  Feed parsing                                                        #
+    # ------------------------------------------------------------------ #
 
     async def parse(self, response):
-        """
-        Parse the Samsung Newsroom listing page.
-        """
-        article_links = response.css(
-            ".news-list a::attr(href), "
-            'a[href*="news.samsung.com/global/"]::attr(href)'
-        ).getall()
+        """Parse the Samsung Global Newsroom RSS 2.0 feed."""
+        try:
+            root = ET.fromstring(response.text)
+        except ET.ParseError as exc:
+            self.logger.error("RSS XML parse error: %s", exc)
+            return
 
-        # Filter to actual article pages
-        article_links = [
-            link
-            for link in article_links
-            if "news.samsung.com/global/" in link
-            and link.rstrip("/") != "https://news.samsung.com/global"
-            and link != response.url
-            and not link.endswith("/global/")
-        ]
+        for item_el in root.findall(".//item"):
+            parsed = self._parse_rss_item(item_el)
+            if parsed:
+                yield parsed
 
-        seen = set()
-        for link in article_links:
-            if link not in seen:
-                seen.add(link)
-                yield response.follow(link, self.parse_article)
+    def _parse_rss_item(self, item_el):
+        """Extract a MobileItem from a single RSS <item> element."""
+        ns = _NS
 
-        # Pagination
-        next_page = response.css(
-            "a.btn-more::attr(href), "
-            'a[class*="load-more"]::attr(href), '
-            "a.next::attr(href), "
-            ".pagination a.next::attr(href)"
-        ).get()
-        if next_page:
-            yield response.follow(next_page, self.parse)
+        title_el = item_el.find("title")
+        title_text = (title_el.text or "").strip() if title_el is not None else ""
 
-    async def parse_article(self, response):
-        """
-        Parse an individual Samsung Newsroom article.
-        """
-        title = (
-            response.css("h1::text").get()
-            or response.css('meta[property="og:title"]::attr(content)').get()
-        )
+        url_el = item_el.find("link")
+        url = (url_el.text or "").strip() if url_el is not None else ""
 
-        author = (
-            response.css('[class*="author"]::text').get()
-            or response.css('meta[name="author"]::attr(content)').get()
-            or "Samsung Newsroom"
-        )
+        # Date — RSS pubDate in RFC-2822 format
+        date = None
+        pubdate_el = item_el.find("pubDate")
+        if pubdate_el is not None and pubdate_el.text:
+            try:
+                date = parsedate_to_datetime(pubdate_el.text).isoformat()
+            except Exception:
+                date = pubdate_el.text.strip()
 
-        date = (
-            response.css("time::attr(datetime)").get()
-            or response.css(".article-date::text").get()
-            or response.css(
-                'meta[property="article:published_time"]::attr(content)'
-            ).get()
-        )
+        # Author — dc:creator
+        author_el = item_el.find("dc:creator", ns)
+        author = (author_el.text or "Samsung Newsroom").strip() if author_el is not None else "Samsung Newsroom"
 
-        # Content
-        content_elements = response.css(
-            ".article-body p, .article-body h2, .article-body h3, "
-            ".article-body li, "
-            ".post-content p, .post-content h2, .post-content h3, "
-            "article p, article h2, article h3"
-        ).getall()
+        # Full HTML content from content:encoded; fall back to <description>
+        content_el = item_el.find("content:encoded", ns)
+        raw_html = (content_el.text or "") if content_el is not None else ""
+        if not raw_html:
+            desc_el = item_el.find("description")
+            raw_html = (desc_el.text or "") if desc_el is not None else ""
+        content_text = BeautifulSoup(raw_html, "html.parser").get_text(" ", strip=True)
 
-        if not content_elements:
-            content_elements = response.css("main p, main h2, main h3").getall()
+        # Tags — <category> elements
+        tags = list({
+            el.text.strip()
+            for el in item_el.findall("category")
+            if el.text and el.text.strip()
+        })
 
-        content = " ".join(
-            [BeautifulSoup(html, "html.parser").get_text() for html in content_elements]
-        )
+        # Image — media:thumbnail or media:content
+        image = None
+        for media_tag in ("media:thumbnail", "media:content"):
+            media_el = item_el.find(media_tag, ns)
+            if media_el is not None:
+                image = media_el.attrib.get("url")
+                break
 
-        # Tags
-        tags = response.css(
-            ".tag-list a::text, .article-tag a::text, "
-            'meta[property="article:tag"]::attr(content)'
-        ).getall()
+        combined = f"{title_text} {content_text[:2000]}"
 
-        category_text = response.css(
-            ".article-category::text, .post-category::text"
-        ).get()
-        if category_text:
-            tags.append(category_text.strip())
+        device_name   = self._detect_device_name(title_text, content_text)
+        article_type  = self._detect_article_type(combined)
+        category      = self._detect_category(combined)
+        specs         = self._extract_specs(content_text)
+        price         = self._extract_price(content_text)
 
-        tags = list(set([t.strip() for t in tags if t.strip()]))
+        # Build a minimal fake response-like object to satisfy create_mobile_item
+        class _FakeResponse:
+            pass
+        fake = _FakeResponse()
+        fake.url = url
 
-        # Detect device and type
-        title_lower = (title or "").lower()
-        content_lower = (content or "")[:500].lower()
-        combined = f"{title_lower} {content_lower}"
-
-        device_name = self._detect_device(combined)
-        article_type = self._detect_article_type(combined)
-        category = self._detect_category(combined)
-
-        metadata = {
-            "description": response.css('meta[name="description"]::attr(content)').get()
-            or response.css('meta[property="og:description"]::attr(content)').get(),
-            "image": response.css('meta[property="og:image"]::attr(content)').get(),
-            "category_label": category_text.strip() if category_text else None,
-            "blog_type": "samsung_newsroom",
-        }
-
-        yield self.create_mobile_item(
-            response,
-            title=title.strip() if title else None,
-            content=content.strip() if content else None,
-            author=author.strip() if author else None,
-            date=date.strip() if date else None,
+        item = self.create_mobile_item(
+            fake,
+            title=title_text or None,
+            content=content_text or None,
+            author=author,
+            date=date,
             tags=tags,
-            metadata=metadata,
+            metadata={
+                "description": "",
+                "image": image,
+                "blog_type": "samsung_newsroom",
+            },
             brand="Samsung",
             os="Android",
             device_name=device_name,
             article_type=article_type,
             category=category,
+            specs=specs,
+            price=price,
         )
-
-    def _detect_device(self, text):
-        devices = [
-            "galaxy s26 ultra",
-            "galaxy s26+",
-            "galaxy s26",
-            "galaxy s25 ultra",
-            "galaxy s25+",
-            "galaxy s25",
-            "galaxy z fold",
-            "galaxy z flip",
-            "galaxy a",
-            "galaxy tab",
-            "galaxy watch ultra",
-            "galaxy watch",
-            "galaxy buds",
-            "galaxy ring",
-        ]
-        for device in devices:
-            if device in text:
-                return device.title()
-        return None
+        return item
 
     def _detect_article_type(self, text):
+        """Classify the article type."""
+        text = text.lower()
         if any(
             w in text
-            for w in ["unpacked", "introduces", "announces", "launch", "unveils"]
+            for w in [
+                "unpacked",
+                "introduces",
+                "announces",
+                "launch",
+                "unveils",
+                "presents",
+            ]
         ):
             return "lanzamiento"
-        if any(w in text for w in ["update", "one ui", "nueva versión"]):
+        if any(w in text for w in ["update", "one ui", "version"]):
             return "actualizacion"
         if any(w in text for w in ["interview", "entrevista"]):
             return "entrevista"
+        if any(w in text for w in ["available", "order", "pre-order"]):
+            return "disponibilidad"
         return "noticia"
 
     def _detect_category(self, text):
-        if any(w in text for w in ["galaxy s", "galaxy z", "galaxy a", "smartphone"]):
+        """Determine device category."""
+        text = text.lower()
+        if any(
+            w in text
+            for w in ["galaxy s", "galaxy z", "galaxy a", "smartphone", "fold", "flip"]
+        ):
             return "smartphone"
         if "galaxy tab" in text:
             return "tablet"
-        if "galaxy watch" in text or "galaxy ring" in text:
+        if any(w in text for w in ["galaxy watch", "galaxy ring", "wearable"]):
             return "wearable"
         if "galaxy buds" in text:
             return "accesorio"

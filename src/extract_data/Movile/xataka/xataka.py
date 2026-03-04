@@ -1,6 +1,5 @@
-import requests
+import re
 from bs4 import BeautifulSoup
-import scrapy
 from ...extract import Extract
 
 
@@ -8,8 +7,8 @@ class Xataka(Extract):
     """
     Spider for Xataka — mobile technology news.
     Source: https://www.xataka.com/
-    Content: Noticias de móviles, lanzamientos, reviews, comparativas,
-             software y hardware de todos los fabricantes y SO.
+    Content: Mobile news, launches, reviews, comparisons,
+             software and hardware from all manufacturers and OS.
     """
 
     name = "xataka"
@@ -55,9 +54,9 @@ class Xataka(Extract):
             ).get()
         )
 
-        # Extract content
+        # Extract content more comprehensively
         content_elements = response.css(
-            ".article-content p, .article-content h2, .article-content h3"
+            ".article-content p, .article-content h2, .article-content h3, .article-content li"
         ).getall()
         content = " ".join(
             [BeautifulSoup(html, "html.parser").get_text() for html in content_elements]
@@ -68,14 +67,25 @@ class Xataka(Extract):
         meta_tags = response.css('meta[property="article:tag"]::attr(content)').getall()
         all_tags = list(set([t.strip() for t in tags + meta_tags if t.strip()]))
 
-        # Detect brand and OS from tags and title
-        title_lower = (title or "").lower()
-        tags_lower = " ".join(all_tags).lower()
-        combined = f"{title_lower} {tags_lower}"
+        # Enhanced detection using base class helpers
+        title_text = title.strip() if title else ""
+        content_text = content.strip() if content else ""
+        combined_text = f"{title_text} {content_text[:2000]}"
+        tags_text = " ".join(all_tags).lower()
 
-        brand = self._detect_brand(combined)
-        mobile_os = self._detect_os(combined)
-        article_type = self._detect_article_type(combined)
+        # Specific detections
+        brand = self._detect_brand(combined_text + " " + tags_text)
+        mobile_os = self._detect_os(combined_text + " " + tags_text)
+        article_type = self._detect_article_type(combined_text)
+        device_name = self._detect_device_name(title_text, content_text)
+
+        # Extract Price from text
+        price = self._extract_price(content_text)
+
+        # Extract Specs from table if it's a review/technical sheet
+        specs = self._extract_specs(content_text)
+        table_specs = self._extract_table_specs(response)
+        specs.update(table_specs)
 
         metadata = {
             "description": response.css(
@@ -86,81 +96,99 @@ class Xataka(Extract):
                 'meta[property="article:section"]::attr(content)'
             ).get(),
             "image": response.css('meta[property="og:image"]::attr(content)').get(),
+            "blog_type": "magazine",
         }
 
         yield self.create_mobile_item(
             response,
-            title=title.strip() if title else None,
-            content=content.strip() if content else None,
+            title=title_text if title_text else None,
+            content=content_text if content_text else None,
             author=author.strip() if author else None,
             date=date,
             tags=all_tags,
             metadata=metadata,
+            device_name=device_name,
             brand=brand,
             os=mobile_os,
             article_type=article_type,
             category="smartphone",
+            specs=specs,
+            price=price,
         )
 
-    def _detect_brand(self, text):
-        brands = {
-            "samsung": "Samsung",
-            "galaxy": "Samsung",
-            "apple": "Apple",
-            "iphone": "Apple",
-            "ipad": "Apple",
-            "xiaomi": "Xiaomi",
-            "redmi": "Xiaomi",
-            "poco": "Xiaomi",
-            "oneplus": "OnePlus",
-            "oppo": "Oppo",
-            "vivo": "vivo",
-            "honor": "Honor",
-            "huawei": "Huawei",
-            "motorola": "Motorola",
-            "google pixel": "Google",
-            "pixel": "Google",
-            "nothing": "Nothing",
-            "realme": "Realme",
-            "sony xperia": "Sony",
-        }
-        for keyword, brand in brands.items():
-            if keyword in text:
-                return brand
-        return None
+    def _extract_table_specs(self, response):
+        """
+        Extract key-value pairs from Xataka's characteristic tables.
+        These are usually inside a .blob-js div or just a <table>.
+        """
+        specs = {}
+        # Find tables that look like specification tables
+        tables = response.css("table")
+        for table in tables:
+            # Check if it has rows with two columns (typical for specs)
+            rows = table.css("tr")
+            for row in rows:
+                cols = row.css("td")
+                if len(cols) == 2:
+                    key = "".join(cols[0].css("*::text").getall()).strip().lower()
+                    value = "".join(cols[1].css("*::text").getall()).strip()
 
-    def _detect_os(self, text):
-        os_map = {
-            "android": "Android",
-            "ios": "iOS",
-            "ipados": "iPadOS",
-            "harmonyos": "HarmonyOS",
-            "one ui": "One UI",
-            "miui": "MIUI",
-            "hyperos": "HyperOS",
-            "coloros": "ColorOS",
-        }
-        for keyword, os_name in os_map.items():
-            if keyword in text:
-                return os_name
-        return None
+                    # Normalize common keys
+                    if "pantalla" in key:
+                        specs["screen"] = value
+                    elif "procesador" in key:
+                        specs["processor"] = value
+                    elif "ram" in key:
+                        specs["ram"] = value
+                    elif "almacenamiento" in key:
+                        specs["storage"] = value
+                    elif "batería" in key or "bateria" in key:
+                        specs["battery"] = value
+                    elif "cámara" in key or "camara" in key:
+                        if "trasera" in key or "principal" in key:
+                            specs["rear_camera"] = value
+                        elif "frontal" in key:
+                            specs["front_camera"] = value
+                    elif "precio" in key:
+                        specs["price_tag"] = value
+        return specs
 
     def _detect_article_type(self, text):
+        """Classify the article type (Spanish and English keywords)."""
+        text = text.lower()
         type_map = {
+            # Reviews
             "review": "review",
             "análisis": "review",
             "analisis": "review",
+            "hands-on": "review",
+            "primeras impresiones": "review",
+            # Comparativas
             "comparativa": "comparativa",
-            "vs": "comparativa",
+            " vs ": "comparativa",
+            # Lanzamientos
             "lanzamiento": "lanzamiento",
             "presenta": "lanzamiento",
             "anuncia": "lanzamiento",
-            "oficial": "lanzamiento",
+            "introduces": "lanzamiento",
+            "announces": "lanzamiento",
+            "launches": "lanzamiento",
+            "unveils": "lanzamiento",
+            # Rumores
             "filtración": "rumor",
             "rumor": "rumor",
+            "filtrado": "rumor",
+            "filtran": "rumor",
+            "leak": "rumor",
+            # Tutoriales
             "tutorial": "tutorial",
             "cómo": "tutorial",
             "truco": "tutorial",
+            "guía": "tutorial",
+            # Precios
+            "oferta": "precio",
+            "descuento": "precio",
+            "rebaja": "precio",
         }
         for keyword, article_type in type_map.items():
             if keyword in text:

@@ -4,14 +4,9 @@ BOT_NAME = "sri"
 
 SPIDER_MODULES = [
     "src.extract_data.Movile.xataka",
-    "src.extract_data.Movile.android_developers_blog",
-    "src.extract_data.Movile.google_blog_android",
-    "src.extract_data.Movile.android_magazine",
-    "src.extract_data.Movile.android_dev_news",
     "src.extract_data.Movile.apple_newsroom",
     "src.extract_data.Movile.samsung_newsroom",
     "src.extract_data.Movile.gsmarena_news",
-    "src.extract_data.Movile.phonearena_news",
 ]
 NEWSPIDER_MODULE = "src.extract_data"
 
@@ -23,8 +18,6 @@ ROBOTSTXT_OBEY = True
 
 # maximum concurrent requests
 CONCURRENT_REQUESTS = 8
-
-DOWNLOAD_DELAY = 1.5
 
 CONCURRENT_REQUESTS_PER_DOMAIN = 8
 # CONCURRENT_REQUESTS_PER_IP = 8
@@ -58,15 +51,19 @@ FEED_EXPORT_ENCODING = "utf-8"
 
 
 DOWNLOAD_DELAYS_PER_SPIDER = {
-    # Android
-    "android_developers_blog": 2.0,
-    "google_blog_android": 2.5,
-    "android_magazine": 2.0,
-    "android_dev_news": 2.5,
-    # General mobile
     "apple_newsroom": 2.5,
     "samsung_newsroom": 2.0,
     "gsmarena_news": 2.0,
-    "phonearena_news": 2.0,
-    "Xataka": 1.5,
+    "xataka": 1.5,
 }
+
+
+#Logging                                                             
+
+EXTENSIONS = {
+    "src.extract_data.log.SpiderFileLogger": 500,
+}
+
+
+SPIDER_FILE_LOGGING = True
+

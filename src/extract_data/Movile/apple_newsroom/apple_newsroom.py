@@ -1,6 +1,6 @@
-import requests
+import re
+import json
 from bs4 import BeautifulSoup
-import scrapy
 from ...extract import Extract
 
 
@@ -26,7 +26,7 @@ class AppleNewsroom(Extract):
         """
         article_links = response.css('a[href*="/newsroom/20"]::attr(href)').getall()
 
-        # Filter to actual article pages (must have year/month/slug pattern)
+        # Filter to actual article pages 
         article_links = [
             link
             for link in article_links
@@ -39,7 +39,7 @@ class AppleNewsroom(Extract):
                 seen.add(link)
                 yield response.follow(link, self.parse_article)
 
-        # Pagination — "more stories" or archive links
+        # Pagination 
         next_page = response.css(
             "a.button.more::attr(href), "
             'a[class*="load-more"]::attr(href), '
@@ -57,73 +57,108 @@ class AppleNewsroom(Extract):
             or response.css('meta[property="og:title"]::attr(content)').get()
         )
 
-        # Author — Apple Newsroom rarely has individual authors
+        # Author 
         author = (
             response.css('[class*="author"]::text').get()
             or response.css('meta[name="author"]::attr(content)').get()
             or "Apple Newsroom"
         )
 
-        # Date
-        date = (
-            response.css("time::attr(datetime)").get()
-            or response.css(
-                'meta[property="article:published_time"]::attr(content)'
-            ).get()
-            or response.css(".hero-eyebrow__date::text").get()
-        )
+        # Date 
+        date = None
+        for ld_text in response.css('script[type="application/ld+json"]::text').getall():
+            try:
+                ld = json.loads(ld_text)
+                dp = ld.get("datePublished")
+                if dp:
+                    date = dp.rstrip("Z") if dp.endswith("Z") else dp
+                    break
+            except (json.JSONDecodeError, AttributeError):
+                pass
+        if not date:
+            date = (
+                response.css("time::attr(datetime)").get()
+                or response.css(
+                    'meta[property="article:published_time"]::attr(content)'
+                ).get()
+                or response.css(".category-eyebrow__date::text").get()
+            )
 
-        # Content
+        # Body Content
         content_elements = response.css(
-            ".article__body p, .article__body h2, .article__body h3, "
-            ".article__body li, .pagebody p, .pagebody h2, .pagebody h3, "
-            "article p, article h2, article h3"
+            "[class*='article'] p, [class*='pagebody-copy'] p, "
+            ".body-copy-wide p"
         ).getall()
 
         if not content_elements:
-            content_elements = response.css("main p, main h2, main h3").getall()
+            content_elements = response.css("main p").getall()
 
         content = " ".join(
             [BeautifulSoup(html, "html.parser").get_text() for html in content_elements]
         )
 
-        # Tags/topics
+        # Pricing and Availability Section
+        availability_text = ""
+        availability_header = response.xpath(
+            '//h2[contains(text(), "Pricing and Availability")] | '
+            '//h3[contains(text(), "Pricing and Availability")]'
+        )
+        if availability_header:
+            availability_elements = availability_header.xpath(
+                "following-sibling::p | following-sibling::ul"
+            ).getall()
+            availability_text = " ".join(
+                [
+                    BeautifulSoup(html, "html.parser").get_text()
+                    for html in availability_elements
+                ]
+            )
+
+        # Tags/topics 
         tags = response.css(
-            '.article-topic::text, a[class*="topic"]::text, '
+            "span.category-eyebrow__category::text, "
+            'a[class*="topic"]::text, '
             'meta[property="article:tag"]::attr(content)'
         ).getall()
 
-        # Detect category from URL and tags
-        category_text = response.css(
-            ".hero-eyebrow__category::text, .tile__topic::text"
-        ).get()
-        if category_text:
-            tags.append(category_text.strip())
+        # Detect category label 
+        category_label = response.css("span.category-eyebrow__category::text").get()
+        if category_label:
+            tags.append(category_label.strip())
 
         tags = list(set([t.strip() for t in tags if t.strip()]))
 
-        # Detect device and article type
-        title_lower = (title or "").lower()
-        content_lower = (content or "")[:500].lower()
-        combined = f"{title_lower} {content_lower}"
+        # Enhanced detection using base class helpers
+        title_text = title.strip() if title else ""
+        content_text = content.strip() if content else ""
+        combined_text = f"{title_text} {content_text[:2000]}"
 
-        device_name = self._detect_device(combined)
-        article_type = self._detect_article_type(combined)
-        category = self._detect_category(combined)
+        device_name = self._detect_device_name(title_text, content_text)
+        article_type = self._detect_article_type(combined_text)
+        category = self._detect_category(combined_text)
+
+        # Extract Price from availability text or main content
+        price = self._extract_price(availability_text or content_text)
+
+        # Extract basic specs from text
+        specs = self._extract_specs(content_text)
 
         metadata = {
             "description": response.css('meta[name="description"]::attr(content)').get()
             or response.css('meta[property="og:description"]::attr(content)').get(),
             "image": response.css('meta[property="og:image"]::attr(content)').get(),
-            "category_label": category_text.strip() if category_text else None,
+            "category_label": category_label.strip() if category_label else None,
+            "availability_info": (
+                availability_text.strip() if availability_text else None
+            ),
             "blog_type": "apple_newsroom",
         }
 
         yield self.create_mobile_item(
             response,
-            title=title.strip() if title else None,
-            content=content.strip() if content else None,
-            author=author.strip() if author else None,
+            title=title_text if title_text else None,
+            content=content_text if content_text else None,
+            author=author.strip() if author else "Apple Newsroom",
             date=date.strip() if date else None,
             tags=tags,
             metadata=metadata,
@@ -132,52 +167,36 @@ class AppleNewsroom(Extract):
             device_name=device_name,
             article_type=article_type,
             category=category,
+            specs=specs,
+            price=price,
         )
 
-    def _detect_device(self, text):
-        devices = [
-            "iphone 17",
-            "iphone 16",
-            "iphone 15",
-            "iphone",
-            "ipad pro",
-            "ipad air",
-            "ipad mini",
-            "ipad",
-            "apple watch ultra",
-            "apple watch",
-            "airpods pro",
-            "airpods max",
-            "airpods",
-            "macbook pro",
-            "macbook air",
-        ]
-        for device in devices:
-            if device in text:
-                return device.title()
-        return None
-
     def _detect_article_type(self, text):
-        if any(
-            w in text
-            for w in ["presenta", "introduces", "announces", "lanza", "launch"]
-        ):
+        """Classify the article type based on keywords (English, Apple style)."""
+        text = text.lower()
+        if any(w in text for w in ["introduces", "announces", "launches", "presents", "unveils"]):
             return "lanzamiento"
-        if any(w in text for w in ["actualiza", "update", "nueva versión"]):
+        if any(w in text for w in ["software update", "ios update", "macos update", "watchos update", "new version", "versión"]):
             return "actualizacion"
-        if any(w in text for w in ["disponible", "available"]):
+        if any(w in text for w in ["available", "disponible", "order now", "now available"]):
             return "disponibilidad"
+        if any(w in text for w in ["how to", "guide", "tips", "tricks"]):
+            return "tutorial"
         return "noticia"
 
     def _detect_category(self, text):
+        """Determine device category from text."""
+        text = text.lower()
         if any(w in text for w in ["iphone", "smartphone"]):
             return "smartphone"
         if "ipad" in text:
             return "tablet"
-        if "apple watch" in text:
+        if "apple watch" in text or "watch ultra" in text or "watch series" in text:
             return "wearable"
-        if "airpods" in text:
+        if any(w in text for w in ["airpods", "beats", "homepod"]):
             return "accesorio"
-        if "mac" in text:
+        if any(w in text for w in ["macbook", "imac", "mac pro", "mac mini", "mac studio"]):
             return "laptop"
-        return "smartphone"
+        if "apple tv" in text:
+            return "entretenimiento"
+        return "noticia"
