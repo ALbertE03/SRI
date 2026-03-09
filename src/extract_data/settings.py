@@ -3,10 +3,9 @@
 BOT_NAME = "sri"
 
 SPIDER_MODULES = [
-    "src.extract_data.Movile.xataka",
-    "src.extract_data.Movile.apple_newsroom",
-    "src.extract_data.Movile.samsung_newsroom",
-    "src.extract_data.Movile.gsmarena_news",
+    "src.extract_data.spiders.mobile.xataka_mobile",
+    "src.extract_data.spiders.mobile.apple_newsroom",
+    "src.extract_data.spiders.pc.xataka_pc",
 ]
 NEWSPIDER_MODULE = "src.extract_data"
 
@@ -49,6 +48,10 @@ REQUEST_FINGERPRINTER_IMPLEMENTATION = "2.7"
 TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
 FEED_EXPORT_ENCODING = "utf-8"
 
+ITEM_PIPELINES = {
+    "src.extract_data.pipelines.DuplicatesPipeline": 300,
+}
+
 
 DOWNLOAD_DELAYS_PER_SPIDER = {
     "apple_newsroom": 2.5,
@@ -58,7 +61,7 @@ DOWNLOAD_DELAYS_PER_SPIDER = {
 }
 
 
-#Logging                                                             
+# Logging
 
 EXTENSIONS = {
     "src.extract_data.log.SpiderFileLogger": 500,
@@ -66,4 +69,3 @@ EXTENSIONS = {
 
 
 SPIDER_FILE_LOGGING = True
-

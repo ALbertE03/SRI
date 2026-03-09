@@ -1,7 +1,7 @@
 import re
 import json
 from bs4 import BeautifulSoup
-from ...extract import Extract
+from ....extract import Extract
 
 
 class AppleNewsroom(Extract):
@@ -26,7 +26,7 @@ class AppleNewsroom(Extract):
         """
         article_links = response.css('a[href*="/newsroom/20"]::attr(href)').getall()
 
-        # Filter to actual article pages 
+        # Filter to actual article pages
         article_links = [
             link
             for link in article_links
@@ -39,7 +39,7 @@ class AppleNewsroom(Extract):
                 seen.add(link)
                 yield response.follow(link, self.parse_article)
 
-        # Pagination 
+        # Pagination
         next_page = response.css(
             "a.button.more::attr(href), "
             'a[class*="load-more"]::attr(href), '
@@ -57,16 +57,18 @@ class AppleNewsroom(Extract):
             or response.css('meta[property="og:title"]::attr(content)').get()
         )
 
-        # Author 
+        # Author
         author = (
             response.css('[class*="author"]::text').get()
             or response.css('meta[name="author"]::attr(content)').get()
             or "Apple Newsroom"
         )
 
-        # Date 
+        # Date
         date = None
-        for ld_text in response.css('script[type="application/ld+json"]::text').getall():
+        for ld_text in response.css(
+            'script[type="application/ld+json"]::text'
+        ).getall():
             try:
                 ld = json.loads(ld_text)
                 dp = ld.get("datePublished")
@@ -86,8 +88,7 @@ class AppleNewsroom(Extract):
 
         # Body Content
         content_elements = response.css(
-            "[class*='article'] p, [class*='pagebody-copy'] p, "
-            ".body-copy-wide p"
+            "[class*='article'] p, [class*='pagebody-copy'] p, " ".body-copy-wide p"
         ).getall()
 
         if not content_elements:
@@ -114,14 +115,14 @@ class AppleNewsroom(Extract):
                 ]
             )
 
-        # Tags/topics 
+        # Tags/topics
         tags = response.css(
             "span.category-eyebrow__category::text, "
             'a[class*="topic"]::text, '
             'meta[property="article:tag"]::attr(content)'
         ).getall()
 
-        # Detect category label 
+        # Detect category label
         category_label = response.css("span.category-eyebrow__category::text").get()
         if category_label:
             tags.append(category_label.strip())
@@ -133,28 +134,16 @@ class AppleNewsroom(Extract):
         content_text = content.strip() if content else ""
         combined_text = f"{title_text} {content_text[:2000]}"
 
-        device_name = self._detect_device_name(title_text, content_text)
-        article_type = self._detect_article_type(combined_text)
         category = self._detect_category(combined_text)
 
-        # Extract Price from availability text or main content
-        price = self._extract_price(availability_text or content_text)
-
-        # Extract basic specs from text
-        specs = self._extract_specs(content_text)
-
         metadata = {
-            "description": response.css('meta[name="description"]::attr(content)').get()
-            or response.css('meta[property="og:description"]::attr(content)').get(),
-            "image": response.css('meta[property="og:image"]::attr(content)').get(),
             "category_label": category_label.strip() if category_label else None,
-            "availability_info": (
-                availability_text.strip() if availability_text else None
-            ),
             "blog_type": "apple_newsroom",
         }
 
-        yield self.create_mobile_item(
+        self.logger.info(f"Successfully extracted Apple Newsroom article: {title_text}")
+
+        yield self.create_item(
             response,
             title=title_text if title_text else None,
             content=content_text if content_text else None,
@@ -164,25 +153,8 @@ class AppleNewsroom(Extract):
             metadata=metadata,
             brand="Apple",
             os="iOS",
-            device_name=device_name,
-            article_type=article_type,
             category=category,
-            specs=specs,
-            price=price,
         )
-
-    def _detect_article_type(self, text):
-        """Classify the article type based on keywords (English, Apple style)."""
-        text = text.lower()
-        if any(w in text for w in ["introduces", "announces", "launches", "presents", "unveils"]):
-            return "lanzamiento"
-        if any(w in text for w in ["software update", "ios update", "macos update", "watchos update", "new version", "versión"]):
-            return "actualizacion"
-        if any(w in text for w in ["available", "disponible", "order now", "now available"]):
-            return "disponibilidad"
-        if any(w in text for w in ["how to", "guide", "tips", "tricks"]):
-            return "tutorial"
-        return "noticia"
 
     def _detect_category(self, text):
         """Determine device category from text."""
@@ -195,7 +167,9 @@ class AppleNewsroom(Extract):
             return "wearable"
         if any(w in text for w in ["airpods", "beats", "homepod"]):
             return "accesorio"
-        if any(w in text for w in ["macbook", "imac", "mac pro", "mac mini", "mac studio"]):
+        if any(
+            w in text for w in ["macbook", "imac", "mac pro", "mac mini", "mac studio"]
+        ):
             return "laptop"
         if "apple tv" in text:
             return "entretenimiento"
