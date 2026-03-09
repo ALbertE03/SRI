@@ -110,7 +110,7 @@ class XatakaPC(Extract):
 
         self.logger.info(f"Successfully extracted Xataka PC article: {title_text}")
 
-        yield self.create_item(
+        yield self.create_pc_item(
             response,
             title=title_text if title_text else None,
             content=content_text if content_text else None,

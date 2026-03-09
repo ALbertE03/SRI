@@ -1,13 +1,14 @@
 import re
 import scrapy
 from abc import ABC, abstractmethod
-from .items import Item
+from .items import Item, MobileItem, PCItem
 
 
 class Extract(scrapy.Spider, ABC):
     """
     Base class for all SRI spiders.
     Ensures consistent data structure and ethical defaults.
+    Reads per-spider download delay from settings.py.
     """
 
     name = None
@@ -34,7 +35,9 @@ class Extract(scrapy.Spider, ABC):
 
     @abstractmethod
     async def parse(self, response):
-        """Standard async parse method to be implemented by children."""
+        """
+        Standard async parse method to be implemented by children.
+        """
         pass
 
     def create_item(
@@ -45,11 +48,10 @@ class Extract(scrapy.Spider, ABC):
         author=None,
         date=None,
         tags=None,
-        **kwargs,
+        metadata=None,
     ) -> Item:
         """
-        Main helper to create an Item.
-        Accepts any extra Tech-specific fields via kwargs (brand, model, os, specs, price, etc).
+        Helper method to create a Item with common fields pre-filled.
         """
         item = Item()
         item["url"] = response.url
@@ -59,88 +61,151 @@ class Extract(scrapy.Spider, ABC):
         item["author"] = author
         item["date"] = date
         item["tags"] = tags or []
-        item["scraped_at"] = None
-
-        # Tech fields
-        item["brand"] = kwargs.get("brand")
-        item["os"] = kwargs.get("os")
-        item["category"] = kwargs.get("category")
-
-        item["metadata"] = kwargs.get("metadata") or {}
+        item["metadata"] = metadata or {}
         return item
 
-    # --- Data Extraction Helpers ---
+    def create_mobile_item(
+        self,
+        response,
+        title=None,
+        content=None,
+        author=None,
+        date=None,
+        tags=None,
+        metadata=None,
+        device_name=None,
+        brand=None,
+        os=None,
+        category=None,
+        article_type=None,
+        specs=None,
+        price=None,
+        release_date=None,
+    ) -> MobileItem:
+        """
+        Helper method to create a MobileItem with all fields pre-filled.
+        Used by mobile-focused spiders.
+        """
+        item = MobileItem()
+        item["url"] = response.url
+        item["source"] = self.source
+        item["title"] = title
+        item["content"] = content
+        item["author"] = author
+        item["date"] = date
+        item["tags"] = tags or []
+        item["metadata"] = metadata or {}
+        item["device_name"] = device_name
+        item["brand"] = brand
+        item["os"] = os
+        item["category"] = category
+        item["article_type"] = article_type
+        item["specs"] = specs or {}
+        item["price"] = price
+        item["release_date"] = release_date
+        return item
+
+    def create_pc_item(
+        self,
+        response,
+        title=None,
+        content=None,
+        author=None,
+        date=None,
+        tags=None,
+        metadata=None,
+        device_name=None,
+        brand=None,
+        os=None,
+        category=None,
+        article_type=None,
+        specs=None,
+        price=None,
+        release_date=None,
+    ) -> PCItem:
+        """
+        Helper method to create a PCItem with all fields pre-filled.
+        Used by PC-focused spiders.
+        """
+        item = PCItem()
+        item["url"] = response.url
+        item["source"] = self.source
+        item["title"] = title
+        item["content"] = content
+        item["author"] = author
+        item["date"] = date
+        item["tags"] = tags or []
+        item["metadata"] = metadata or {}
+        item["device_name"] = device_name
+        item["brand"] = brand
+        item["os"] = os
+        item["category"] = category
+        item["article_type"] = article_type
+        item["specs"] = specs or {}
+        item["price"] = price
+        item["release_date"] = release_date
+        return item
 
     def _detect_brand(self, text):
-        """Detect Tech brand (Mobile & PC) from text."""
-        if not text:
-            return None
+        """Detect mobile brand from text. Shared across all mobile spiders."""
         text = text.lower()
         brands = {
-            # Mobile
+            "rog phone": "ASUS",
+            "galaxy": "Samsung",
             "samsung": "Samsung",
             "iphone": "Apple",
-            "xiaomi": "Xiaomi",
+            "ipad": "Apple",
+            "apple": "Apple",
             "redmi": "Xiaomi",
             "poco": "Xiaomi",
+            "xiaomi": "Xiaomi",
             "oneplus": "OnePlus",
             "oppo": "Oppo",
             "vivo": "vivo",
             "honor": "Honor",
             "huawei": "Huawei",
-            "pixel": "Google",
+            "moto ": "Motorola",
             "motorola": "Motorola",
-            "realme": "Realme",
+            "google pixel": "Google",
+            "pixel": "Google",
+            "nothing phone": "Nothing",
             "nothing": "Nothing",
-            # PC / Laptops
-            "macbook": "Apple",
-            "imac": "Apple",
-            "thinkpad": "Lenovo",
-            "legion": "Lenovo",
-            "lenovo": "Lenovo",
-            "dell": "Dell",
-            "xps": "Dell",
-            "alienware": "Dell",
-            "hp": "HP",
-            "pavilion": "HP",
-            "omen": "HP",
+            "realme": "Realme",
+            "xperia": "Sony",
+            "sony": "Sony",
             "asus": "ASUS",
-            "rog": "ASUS",
-            "tuf": "ASUS",
-            "msi": "MSI",
-            "acer": "Acer",
-            "predator": "Acer",
-            "razer": "Razer",
-            "microsoft surface": "Microsoft",
-            "surface": "Microsoft",
-            "gigabyte": "Gigabyte",
-            "corsair": "Corsair",
+            "nokia": "Nokia",
+            "zte": "ZTE",
+            "nubia": "Nubia",
+            "lenovo": "Lenovo",
+            "tecno": "Tecno",
+            "infinix": "Infinix",
+            "fairphone": "Fairphone",
         }
         for keyword, brand in brands.items():
-            if re.search(rf"\b{keyword}\b", text):
+            if keyword in text:
                 return brand
         return None
 
     def _detect_os(self, text):
-        """Detect OS (Mobile & PC)."""
-        if not text:
-            return None
+        """Detect mobile operating system from text. Shared across all mobile spiders."""
         text = text.lower()
         os_map = {
+            "watchos": "watchOS",
+            "ipados": "iPadOS",
+            "ipad": "iPadOS",
+            "harmonyos": "HarmonyOS",
+            "one ui": "Android",
+            "miui": "Android",
+            "hyperos": "Android",
+            "coloros": "Android",
+            "oxygenos": "Android",
             "android": "Android",
             "ios": "iOS",
-            "ipados": "iPadOS",
-            "windows 11": "Windows 11",
-            "windows 10": "Windows 10",
-            "windows": "Windows",
-            "macos": "macOS",
-            "mac os": "macOS",
-            "linux": "Linux",
-            "ubuntu": "Linux",
-            "chromeos": "ChromeOS",
-            "harmonyos": "HarmonyOS",
         }
         for keyword, os_name in os_map.items():
-            if re.search(rf"\b{keyword}\b", text):
+            if keyword in text:
                 return os_name
         return None
+
+  
