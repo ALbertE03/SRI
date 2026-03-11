@@ -1,0 +1,29 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+.venv/
+venv/
+
+# Scrapy cache
+httpcache/
+.scrapy/
+
+# Data & indexes (mounted as volumes at runtime)
+data/
+indexes/
+logs/
+
+# Dev / editor
+.git/
+.gitignore
+.vscode/
+*.md
+report/
+
+# Tests
+test_modules.py

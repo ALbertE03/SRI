@@ -1,0 +1,31 @@
+services:
+
+  crawl:
+    build: .
+    image: sri-app
+    volumes:
+      - ./data:/app/data        # persist scraped data on host
+      - ./logs:/app/logs        # persist logs on host
+      - ./indexes:/app/indexes  # persist indexes on host
+    command: >
+      /bin/sh -c "
+        uv run scrapy crawl xataka_mobile > logs/xataka_mobile.log 2>&1 &
+        uv run scrapy crawl xataka_pc     > logs/xataka_pc.log 2>&1 &
+        wait && echo 'All spiders finished.'
+      "
+
+  index:
+    image: sri-app
+    volumes:
+      - ./data:/app/data
+      - ./indexes:/app/indexes
+    command: uv run python -m src.indexing.indexer
+
+  query:
+    image: sri-app
+    volumes:
+      - ./data:/app/data
+      - ./indexes:/app/indexes
+    stdin_open: true
+    tty: true
+    command: uv run python main.py

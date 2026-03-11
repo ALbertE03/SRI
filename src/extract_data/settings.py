@@ -9,18 +9,15 @@ SPIDER_MODULES = [
 NEWSPIDER_MODULE = "src.extract_data"
 
 
-USER_AGENT = "SRI-Bot (+https://github.com/ALbertE03/SRI)"
+USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/123.0.0.0 Safari/537.36"
+)
 
-# ------------------------------------------------------------------ #
-# Crawling policies — robots.txt & ethical limits                     #
-# ------------------------------------------------------------------ #
 
 # Always respect robots.txt
 ROBOTSTXT_OBEY = True
-
-# Maximum crawl depth (0 = unlimited). Set to 3 to limit breadth while
-# still reaching article pages (listing → article) with margin.
-DEPTH_LIMIT = 3
 
 
 # Hard timeout per spider (seconds). Prevents runaway crawls.
@@ -38,18 +35,10 @@ DEFAULT_REQUEST_HEADERS = {
     "Accept-Language": "es,en;q=0.9",
 }
 
-# ------------------------------------------------------------------ #
-# AutoThrottle — polite crawling                                       #
-# ------------------------------------------------------------------ #
-
 AUTOTHROTTLE_ENABLED = True
 AUTOTHROTTLE_START_DELAY = 2
 AUTOTHROTTLE_MAX_DELAY = 60
 AUTOTHROTTLE_TARGET_CONCURRENCY = 1.0
-
-# ------------------------------------------------------------------ #
-# HTTP Cache — avoid re-downloading unchanged pages                   #
-# ------------------------------------------------------------------ #
 
 HTTPCACHE_ENABLED = True
 HTTPCACHE_EXPIRATION_SECS = 86400  # 24 hours
@@ -57,17 +46,9 @@ HTTPCACHE_DIR = "httpcache"
 HTTPCACHE_IGNORE_HTTP_CODES = [500, 502, 503, 504, 400, 403, 404, 408, 429]
 HTTPCACHE_STORAGE = "scrapy.extensions.httpcache.FilesystemCacheStorage"
 
-# ------------------------------------------------------------------ #
-# Reactor / serialization                                              #
-# ------------------------------------------------------------------ #
-
 REQUEST_FINGERPRINTER_IMPLEMENTATION = "2.7"
 TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
 FEED_EXPORT_ENCODING = "utf-8"
-
-# ------------------------------------------------------------------ #
-# Item pipelines                                                       #
-# ------------------------------------------------------------------ #
 
 ITEM_PIPELINES = {
     # Stamp every item with its collection timestamp
@@ -82,9 +63,6 @@ ITEM_PIPELINES = {
 # Sub-directories (mobile/, pc/, general/) are created automatically.
 DATA_DIR = "data"
 
-# ------------------------------------------------------------------ #
-# Per-spider download delays (seconds)                                #
-# ------------------------------------------------------------------ #
 
 DOWNLOAD_DELAYS_PER_SPIDER = {
     "apple_newsroom": 2.5,
@@ -94,9 +72,6 @@ DOWNLOAD_DELAYS_PER_SPIDER = {
     "xataka_pc": 1.5,
 }
 
-# ------------------------------------------------------------------ #
-# Logging                                                              #
-# ------------------------------------------------------------------ #
 
 EXTENSIONS = {
     "src.extract_data.log.SpiderFileLogger": 500,
