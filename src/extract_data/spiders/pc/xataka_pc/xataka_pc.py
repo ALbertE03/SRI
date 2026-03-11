@@ -25,6 +25,8 @@ class XatakaPC(Extract):
         "https://www.xataka.com/tag/procesadores",
         "https://www.xataka.com/tag/tarjetas-graficas",
         "https://www.xataka.com/tag/linux",
+        "https://www.xataka.com/tag/ssd",
+        "https://www.xataka.com/tag/ram",
     ]
 
     async def parse(self, response):
@@ -45,7 +47,6 @@ class XatakaPC(Extract):
         Parse an individual Xataka PC article.
         """
         title = response.css("h1::text").get()
-        subtitle = response.css("h2::text").get()
         author = (
             response.css(".p-a-chip.js-author span::text").get()
             or response.css('meta[name="DC.Creator"]::attr(content)').get()
@@ -81,7 +82,7 @@ class XatakaPC(Extract):
         # Enhanced detection using base class helpers
         title_text = title.strip() if title else ""
         content_text = content.strip() if content else ""
-        combined_text = f"{title_text} {content_text[:2000]}"
+        combined_text = f"{title_text} {content_text}"
         tags_text = " ".join(all_tags).lower()
 
         # Specific detections

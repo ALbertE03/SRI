@@ -65,11 +65,8 @@ DATA_DIR = "data"
 
 
 DOWNLOAD_DELAYS_PER_SPIDER = {
-    "apple_newsroom": 2.5,
-    "samsung_newsroom": 2.0,
-    "gsmarena_news": 2.0,
-    "xataka_mobile": 1.5,
-    "xataka_pc": 1.5,
+    "xataka_mobile": 5.5,
+    "xataka_pc": 5.5,
 }
 
 

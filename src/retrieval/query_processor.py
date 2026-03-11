@@ -1,27 +1,3 @@
-"""
-QueryProcessor — pre-processes user queries and post-processes ranked results.
-
-Responsibilities
-----------------
-1. Query normalisation  : lowercase, strip noise, handle typos
-2. Query expansion      : synonym expansion for tech domain
-   (e.g., "móvil" → "smartphone teléfono celular")
-3. Structured query parsing: detect filters embedded in free text
-   e.g., "iphone review" → query="iphone", category="mobile"
-4. Result re-ranking    : optional MMR (Maximal Marginal Relevance)
-   to increase diversity in returned results
-
-Usage
------
-    from src.retrieval.query_processor import QueryProcessor
-
-    qp = QueryProcessor()
-    q  = qp.process("mejores moviles 2024")
-    # q.text     = "mejores moviles 2024 smartphone teléfono"
-    # q.category = "mobile"
-    # q.filters  = {}
-"""
-
 from __future__ import annotations
 
 import re

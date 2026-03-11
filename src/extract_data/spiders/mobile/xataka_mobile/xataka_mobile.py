@@ -22,7 +22,17 @@ class XatakaMobile(Extract):
         "https://www.xataka.com/tag/xiaomi",
         "https://www.xataka.com/tag/android",
         "https://www.xataka.com/tag/ios",
-        "https://www.xataka.com/moviles",
+        "https://www.xataka.com/tag/huawei",
+        "https://www.xataka.com/tag/oppo",
+        "https://www.xataka.com/tag/vivo",
+        "https://www.xataka.com/tag/realme",
+        "https://www.xataka.com/tag/oneplus",
+        "https://www.xataka.com/tag/google-pixel",
+        "https://www.xataka.com/tag/sony-xperia",
+        "https://www.xataka.com/tag/motorola",
+        "https://www.xataka.com/tag/nokia",
+        "https://www.xataka.com/tag/asus-rog-phone",
+        "https://www.xataka.com/tag/blackberry",
     ]
 
     async def parse(self, response):
@@ -43,7 +53,6 @@ class XatakaMobile(Extract):
         Parse an individual Xataka mobile article.
         """
         title = response.css("h1::text").get()
-        subtitle = response.css("h2::text").get()
         author = (
             response.css(".p-a-chip.js-author span::text").get()
             or response.css('meta[name="DC.Creator"]::attr(content)').get()
@@ -56,8 +65,6 @@ class XatakaMobile(Extract):
             or response.css('meta[name="DC.date.issued"]::attr(content)').get()
         )
         if not date:
-            # Fallback for Xataka using URL pattern
-            # e.g. https://www.xataka.com/moviles/apple-google-se-han-dado-mano... -> we can't extract the exact date
             self.logger.warning(
                 f"Failed to extract date for: {response.url}. Using current timestamp as fallback."
             )
@@ -81,7 +88,7 @@ class XatakaMobile(Extract):
         # Enhanced detection using base class helpers
         title_text = title.strip() if title else ""
         content_text = content.strip() if content else ""
-        combined_text = f"{title_text} {content_text[:2000]}"
+        combined_text = f"{title_text} {content_text}"
         tags_text = " ".join(all_tags).lower()
 
         # Specific detections
