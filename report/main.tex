@@ -1,0 +1,468 @@
+% ── LNCS document class (download llncs.cls from https://www.springer.com/gp/authors-editors/book-authors-editors/manuscript-preparation/5636) ──
+\documentclass{llncs}
+
+% ── Encoding & language ────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+
+% ── Mathematics ────────────────────────────────────────────────────────────
+\usepackage{amsmath, amssymb}
+
+% ── Code listings ──────────────────────────────────────────────────────────
+\usepackage{listings}
+\usepackage{xcolor}
+
+\definecolor{codebg}{RGB}{248,248,248}
+\definecolor{codecomment}{RGB}{106,153,85}
+\definecolor{codekw}{RGB}{86,156,214}
+\definecolor{codestr}{RGB}{206,145,120}
+
+\lstdefinestyle{python}{
+  language=Python,
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{codekw}\bfseries,
+  commentstyle=\color{codecomment}\itshape,
+  stringstyle=\color{codestr},
+  breaklines=true,
+  frame=single,
+  rulecolor=\color{gray!40},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  numbersep=8pt,
+  showstringspaces=false,
+  tabsize=4,
+}
+
+% ── Figures & tables ───────────────────────────────────────────────────────
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+
+% ── Diagrams ───────────────────────────────────────────────────────────────
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds}
+
+% ── Hyperlinks ─────────────────────────────────────────────────────────────
+\usepackage[hidelinks, breaklinks]{hyperref}
+\usepackage{url}
+
+% ─────────────────────────────────────────────────────────────────────────
+\begin{document}
+
+% ── Title block ────────────────────────────────────────────────────────────
+\title{Sistema de Recuperación de Información sobre Noticias Tecnológicas}
+
+\author{Alberto}
+
+\institute{Grado en Ingeniería Informática\\
+\email{}}
+
+\maketitle
+
+% ── Abstract ───────────────────────────────────────────────────────────────
+\begin{abstract}
+Este trabajo presenta el diseño e implementación de un Sistema de Recuperación
+de Información (SRI) sobre un corpus de noticias tecnológicas en español sobre
+dispositivos móviles y ordenadores personales (PC). El sistema combina dos
+modelos complementarios: BM25 para precisión léxica y LSI (\textit{Latent
+Semantic Indexing}) para similitud semántica. Los documentos se obtienen
+mediante arañas web (\textit{spiders}) construidas con Scrapy a partir de
+prensa especializada. El preprocesado incluye tokenización, eliminación de
+\textit{stopwords} y stemming morfológico. El procesador de consultas
+incorpora expansión con sinónimos, inferencia de categoría y reordenación MMR.
+Los índices se serializan a disco para permitir consultas sin reentrenamiento.
+\end{abstract}
+
+\keywords{recuperación de información \and BM25 \and LSI \and Scrapy \and
+índice invertido \and procesamiento de lenguaje natural}
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Definición del Dominio Seleccionado}
+% ═══════════════════════════════════════════════════════════════════════════
+
+\subsection{Descripción general}
+
+El dominio seleccionado para este sistema de recuperación de información (SRI)
+es el de \textbf{noticias tecnológicas}, concretamente artículos de prensa
+especializada sobre dispositivos móviles y ordenadores personales (PC).
+
+La colección de documentos se extrae de forma automática mediante arañas web
+(\textit{spiders}) de Scrapy a partir de la siguiente fuente:
+
+\begin{table}[h]
+  \centering
+  \caption{Fuente de datos del corpus tecnológico.}
+  \begin{tabular}{lll}
+    \toprule
+    \textbf{Fuente} & \textbf{Idioma} & \textbf{Categoría} \\
+    \midrule
+    Xataka (\texttt{xataka.com}) & Español & Móvil y PC \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Características del corpus}
+
+El corpus presenta las siguientes particularidades que condicionan el diseño
+del sistema:
+
+\begin{itemize}
+  \item \textbf{Riqueza sinonímica}: los textos tecnológicos emplean
+    numerosos sinónimos y acrónimos: procesador/chip/CPU,
+    pantalla/display/screen, cámara/fotografía/camera.
+  \item \textbf{Polisemia}: términos como ``galaxy'' (Samsung) o ``apple''
+    (empresa vs.\ fruta) exigen disambiguación por contexto.
+  \item \textbf{Contenido mixto}: los artículos incluyen análisis, noticias,
+    comparativas y tutoriales.
+  \item \textbf{Metadatos ricos}: cada documento dispone de título, contenido
+    completo, autor, fecha de publicación, etiquetas temáticas, marca y
+    sistema operativo.
+\end{itemize}
+
+\subsection{Esquema canónico de documento}
+
+Tras la extracción y normalización por el módulo \texttt{DocumentStore}, cada
+documento sigue el esquema:
+
+\begin{table}[h]
+  \centering
+  \caption{Esquema canónico de documento en \texttt{DocumentStore}.}
+  \begin{tabular}{lll}
+    \toprule
+    \textbf{Campo} & \textbf{Tipo} & \textbf{Descripción} \\
+    \midrule
+    \texttt{id}           & str       & URL del artículo (identificador único) \\
+    \texttt{title}        & str       & Titular del artículo \\
+    \texttt{content}      & str       & Cuerpo completo del texto \\
+    \texttt{author}       & str       & Autor \\
+    \texttt{date}         & str       & Fecha ISO-8601 \\
+    \texttt{source}       & str       & Fuente (\texttt{xataka\_mobile}, etc.) \\
+    \texttt{category}     & str       & Categoría canónica: \texttt{mobile}, \texttt{pc}, \texttt{general} \\
+    \texttt{subcategory}  & str       & Etiqueta fina del spider (smartphone, laptop…) \\
+    \texttt{brand}        & str       & Marca detectada (Apple, Samsung, Google…) \\
+    \texttt{os}           & str       & Sistema operativo (iOS, Android, Windows…) \\
+    \texttt{tags}         & list[str] & Etiquetas temáticas \\
+    \texttt{metadata}     & dict      & Metadatos adicionales \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Modelo de Recuperación Implementado}
+% ═══════════════════════════════════════════════════════════════════════════
+
+El modelo de recuperación implementado es \textbf{LSI}
+(\textit{Latent Semantic Indexing})~\cite{deerwester1990,manning2008},
+que proyecta documentos y consultas en un espacio semántico latente de
+dimensión reducida, logrando similitud semántica más allá del solapamiento
+exacto de tokens. La arquitectura del sistema se describe en la
+sección~\ref{sec:arquitectura}.
+
+\subsection{Arquitectura del sistema}
+\label{sec:arquitectura}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  node distance=0.7cm and 1.8cm,
+  box/.style={rectangle, rounded corners=4pt, draw=gray!70,
+              fill=blue!6, minimum width=3.2cm, minimum height=0.75cm,
+              font=\small, align=center},
+  arrow/.style={-{Stealth[length=6pt]}, gray!70, thick},
+]
+
+\node[box] (store)   {DocumentStore\\(JSONL)};
+\node[box, right=of store] (norm) {TextNormalizer\\tokenize · stem};
+\node[box, right=of norm]  (idx)  {InvertedIndex\\posting lists};
+\node[box, below=of idx]   (lsi)  {LSIRetriever\\TF-IDF $\to$ SVD};
+\node[box, above=of idx]   (bm25) {BM25 search};
+\node[box, right=of idx, yshift=-0.75cm] (qp) {QueryProcessor\\expand · filter};
+\node[box, right=of qp]    (res)  {Resultados\\rankeados};
+
+\draw[arrow] (store) -- (norm);
+\draw[arrow] (norm)  -- (idx);
+\draw[arrow] (idx)   -- (bm25);
+\draw[arrow] (idx)   -- (lsi);
+\draw[arrow] (qp)    -- (res);
+\draw[arrow] (bm25)  -| (res);
+\draw[arrow] (lsi.east)  -- ++(0.3,0) |- (res.south west);
+
+\end{tikzpicture}
+\caption{Arquitectura del sistema SRI. El índice invertido es la estructura
+  central compartida por BM25 y LSI.}
+\end{figure}
+
+\subsection{Normalización y preprocesado de texto}
+\label{sec:normalizer}
+
+La clase \texttt{TextNormalizer} aplica el siguiente pipeline sobre cada
+documento y consulta:
+
+\begin{enumerate}
+  \item \textbf{Minúsculas}: unificación de casing.
+  \item \textbf{Eliminación de URLs}: \texttt{https?://\textbackslash{}S+}.
+  \item \textbf{Eliminación de caracteres no alfanuméricos}: se conservan
+    letras (incluyendo acentuadas y ñ), dígitos y espacios.
+  \item \textbf{Tokenización}: mediante NLTK~\cite{bird2009} \textit{punkt} en modo español.
+  \item \textbf{Eliminación de stopwords}: lista combinada español + inglés
+    de NLTK~\cite{bird2009} (574 términos).
+  \item \textbf{Stemming}: \textit{SnowballStemmer}~\cite{bird2009} en español, que reduce
+    las variantes morfológicas a su raíz (``cámara'' $\to$ \textit{cam},
+    ``procesadores'' $\to$ \textit{proces}).
+\end{enumerate}
+
+El título de cada documento se concatena tres veces antes del contenido para
+potenciar su peso en el índice sin modificar las fórmulas de puntuación.
+
+\subsection{Índice Invertido}
+\label{sec:index}
+
+\subsubsection{Estructura de datos}
+
+El índice invertido se implementa en la clase \texttt{InvertedIndex} como
+estructura central de datos sobre la que opera el recuperador LSI:
+
+\[
+  \text{\_index} : \textit{term} \;\longrightarrow\; \{doc\_id : tf\}
+\]
+
+donde $tf$ es la frecuencia bruta del término en el documento.  Además se
+mantiene por documento:
+
+\[
+  \text{\_doc\_info}[d] = \{
+    \textit{length},\; \textit{title},\; \textit{url},\;
+    \textit{source},\; \textit{date},\; \textit{tags},\; \textit{category}
+  \}
+\]
+
+Esta estructura de datos es consumida directamente por \texttt{LSIRetriever}
+para construir la matriz TF-IDF sin necesidad de re-tokenizar el corpus
+(véase sección~\ref{sec:lsi}).
+
+\subsection{Modelo LSI (\textit{Latent Semantic Indexing})}
+\label{sec:lsi}
+
+\subsubsection{Motivación}
+
+Los modelos basados en coincidencia exacta de tokens no detectan relaciones
+semánticas entre términos. En un corpus con abundantes sinónimos tecnológicos
+(``cámara'' / ``camera'' / ``foto'', ``procesador'' / ``chip'' / ``CPU'')
+una consulta puede no encontrar documentos semánticamente equivalentes
+si no comparten términos exactos. LSI~\cite{deerwester1990,manning2008}
+resuelve esto proyectando documentos y consultas en un espacio latente
+compartido, donde la similitud refleja relaciones conceptuales en lugar
+de solapamiento léxico.
+
+\subsubsection{Construcción de la matriz TF-IDF}
+
+La clase \texttt{LSIRetriever} reutiliza las posting lists del
+\texttt{InvertedIndex} para construir la matriz
+dispersa $A \in \mathbb{R}^{N \times V}$ con pesos TF-IDF~\cite{manning2008}:
+
+\[
+  A_{d,t} = \frac{tf_{t,d}}{|d|} \cdot
+    \left(\log\frac{N+1}{df_t+1} + 1\right)
+\]
+
+Las filas se normalizan con L2 para que la similaridad coseno sea equivalente
+al producto escalar.
+
+\subsubsection{SVD truncada}
+
+Se aplica una descomposición en valores singulares (SVD) truncada~\cite{deerwester1990} de rango $k$, implementada con scikit-learn~\cite{pedregosa2011}:
+
+\[
+  A \approx U_k \,\Sigma_k\, V_k^\top
+\]
+
+donde $k = \min(\texttt{n\_components},\, N-1,\, V-1)$.  La matriz
+$U_k \Sigma_k \in \mathbb{R}^{N \times k}$ contiene los vectores LSI de
+los documentos, normalizados con L2.
+
+\subsubsection{Búsqueda en el espacio LSI}
+
+Dada una consulta $q$, su vector TF-IDF se proyecta al espacio LSI~\cite{deerwester1990}
+mediante la transformación aprendida por \texttt{TruncatedSVD}~\cite{pedregosa2011}:
+
+\[
+  \vec{q}_\text{LSI} = \text{TruncatedSVD.transform}(\vec{q}_\text{tfidf})
+\]
+
+La puntuación de cada documento $d_j$ es la similitud coseno:
+
+\[
+  \text{score}(d_j, q)
+    = \frac{\vec{d}_j \cdot \vec{q}_\text{LSI}}
+           {\|\vec{d}_j\|\;\|\vec{q}_\text{LSI}\|}
+\]
+
+Al estar ambos vectores normalizados en L2, la operación se reduce a un
+producto matricial $D \cdot \vec{q}_\text{LSI}^\top$ vectorizado sobre toda
+la colección.
+
+\subsection{Procesador de consultas}
+\label{sec:qp}
+
+La clase \texttt{QueryProcessor} aplica el siguiente pipeline antes de
+enviar la consulta al recuperador:
+
+\begin{enumerate}
+  \item \textbf{Limpieza}: normalización de espacios y minúsculas.
+  \item \textbf{Extracción de filtros explícitos}: la sintaxis
+    \texttt{clave:valor} (p.\,ej.\ \texttt{category:mobile}) permite
+    filtros estructurados incrustados en la consulta de texto libre.
+  \item \textbf{Inferencia de categoría}: si no hay filtro explícito, se
+    detecta la categoría (\texttt{mobile} / \texttt{pc}) a partir de un
+    diccionario de indicadores léxicos (smartphones, laptops, etc.).
+  \item \textbf{Expansión con sinónimos}: se añaden sinónimos del dominio
+    tecnológico para mejorar el recall.
+    Ejemplo:
+    \begin{center}
+      \texttt{"iphone camara nocturna"}
+      $\;\longrightarrow\;$
+      \texttt{"iphone camara nocturna camera foto fotografia"}
+    \end{center}
+\end{enumerate}
+
+Opcionalmente, los resultados pueden ser reordenados por fecha
+(\texttt{rerank\_by\_date}) o por diversidad mediante
+\textbf{MMR} (\textit{Maximal Marginal Relevance})~\cite{carbonell1998}:
+
+\[
+  \text{MMR}(d_i) = (1-\lambda)\,\text{Rel}(d_i)
+                  - \lambda \max_{d_j \in S}\,\text{Sim}(d_i, d_j)
+\]
+
+donde $S$ es el conjunto de documentos ya seleccionados y
+$\text{Sim}(\cdot,\cdot)$ es la similaridad de Jaccard sobre etiquetas.
+
+\subsection{Pipeline completo de recuperación}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  node distance=0.5cm,
+  box/.style={rectangle, rounded corners=4pt, draw=gray!60,
+              fill=blue!5, minimum width=4.8cm, minimum height=0.7cm,
+              font=\small, align=center},
+  arrow/.style={-{Stealth[length=6pt]}, gray!60, thick},
+]
+\node[box] (q0) {Consulta en lenguaje natural};
+\node[box, below=of q0] (qp) {QueryProcessor\\normaliza · expande · infiere categoría};
+\node[box, below=of qp] (lsi) {LSIRetriever.retrieve(pq.text,\\category\_filter=pq.category)};
+\node[box, below=of lsi] (rank) {Ranking por similitud coseno LSI};
+\node[box, below=of rank] (out) {Top-$k$ resultados};
+
+\draw[arrow] (q0) -- (qp);
+\draw[arrow] (qp)  -- (lsi);
+\draw[arrow] (lsi) -- (rank);
+\draw[arrow] (rank)-- (out);
+\end{tikzpicture}
+\caption{Pipeline completo de una consulta en el sistema SRI.}
+\end{figure}
+
+\subsection{Persistencia de índices}
+\label{sec:persist}
+
+El modelo LSI se serializa a disco para evitar reentrenamientos:
+
+\begin{table}[h]
+  \centering
+  \caption{Archivos de persistencia del modelo LSI.}
+  \begin{tabular}{lll}
+    \toprule
+    \textbf{Archivo} & \textbf{Formato} & \textbf{Contenido} \\
+    \midrule
+    \texttt{indexes/index/inverted\_index.pkl} & pickle & posting lists, \texttt{doc\_info} \\
+    \texttt{indexes/index/index\_meta.json}    & JSON   & vocab, $N$ \\
+    \texttt{indexes/lsi/lsi\_model.pkl}        & pickle & SVD, matriz doc, vocab, IDF \\
+    \texttt{indexes/lsi/lsi\_meta.json}        & JSON   & varianza explicada, $k$, $N$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% ═══════════════════════════════════════════════════════════════════════════
+\section{Extracción de datos}
+% ═══════════════════════════════════════════════════════════════════════════
+
+\subsection{Spiders implementados}
+
+Los spiders se implementan con Scrapy~\cite{scrapy2023} heredando de la clase
+base abstracta \texttt{Extract}, que garantiza un esquema unificado y buenas
+prácticas de \textit{crawling} (respeto de \texttt{robots.txt},
+\textit{AutoThrottle}, caché HTTP).
+
+\begin{table}[h]
+  \centering
+  \caption{Spiders de extracción implementados.}
+  \begin{tabular}{lll}
+    \toprule
+    \textbf{Spider} & \textbf{Fuente} & \textbf{Ítem} \\
+    \midrule
+    \texttt{xataka\_mobile}  & xataka.com (móviles) & \texttt{MobileItem} \\
+    \texttt{xataka\_pc}      & xataka.com (PC)      & \texttt{PCItem} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Pipelines de Scrapy}
+
+Los ítems extraídos pasan por tres pipelines en orden:
+
+\begin{enumerate}
+  \item \textbf{TimestampPipeline} (prioridad 100): añade el campo
+    \texttt{scraped\_at} con marca de tiempo UTC.
+  \item \textbf{DuplicatesPipeline} (prioridad 300): descarta ítems cuya
+    URL ya fue vista en la sesión actual.
+  \item \textbf{JsonStoragePipeline} (prioridad 500): persiste los ítems
+    como JSONL en \texttt{data/\{mobile,pc,general\}/spider\_YYYY-MM-DD.jsonl}.
+\end{enumerate}
+
+% ═══════════════════════════════════════════════════════════════════════════
+% References (LNCS style: author surname, initials: title. venue, pages (year))
+% ═══════════════════════════════════════════════════════════════════════════
+
+\begin{thebibliography}{6}
+
+\bibitem{deerwester1990}
+Deerwester, S., Dumais, S.T., Furnas, G.W., Landauer, T.K., Harshman, R.:
+Indexing by Latent Semantic Analysis.
+J. Am. Soc. Inf. Sci. \textbf{41}(6), 391--407 (1990).
+\url{https://doi.org/10.1002/(SICI)1097-4571(199009)41:6<391::AID-ASI1>3.0.CO;2-9}
+
+\bibitem{manning2008}
+Manning, C.D., Raghavan, P., Schütze, H.:
+Introduction to Information Retrieval.
+Cambridge University Press, Cambridge (2008).
+\url{https://nlp.stanford.edu/IR-book/}
+
+\bibitem{carbonell1998}
+Carbonell, J., Goldstein, J.:
+The use of MMR, diversity-based reranking for reordering documents and
+producing summaries.
+In: Proc. 21st ACM SIGIR, pp. 335--336 (1998).
+\url{https://doi.org/10.1145/290941.291025}
+
+\bibitem{bird2009}
+Bird, S., Klein, E., Loper, E.:
+Natural Language Processing with Python.
+O'Reilly Media, Sebastopol (2009).
+\url{https://www.nltk.org/book/}
+
+\bibitem{pedregosa2011}
+Pedregosa, F., et al.:
+Scikit-learn: Machine Learning in Python.
+J. Mach. Learn. Res. \textbf{12}, 2825--2830 (2011).
+\url{https://scikit-learn.org/}
+
+\bibitem{scrapy2023}
+Scrapy developers:
+Scrapy documentation (2023).
+\url{https://docs.scrapy.org/}
+
+\end{thebibliography}
+
+\end{document}

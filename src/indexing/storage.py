@@ -1,25 +1,3 @@
-"""
-DocumentStore — JSON-backed document store used by the SRI indexing pipeline.
-
-Loads raw scraped documents (JSONL) from the data/ directory, normalises them
-into a unified schema and exposes them as plain dicts so the InvertedIndex and
-the vector store can consume them without knowing about Scrapy items.
-
-Typical usage
--------------
-    from src.indexing import DocumentStore
-
-    store = DocumentStore("data/")
-    store.load_all()
-    print(f"Loaded {len(store)} documents")
-
-    # Access a single document
-    doc = store.get_by_id("https://www.xataka.com/moviles/...")
-
-    # Access all docs for a category
-    mobile_docs = store.get_by_category("mobile")
-"""
-
 from __future__ import annotations
 
 import json
@@ -49,10 +27,6 @@ class DocumentStore:
     def __init__(self, data_dir: str | Path = "data") -> None:
         self.data_dir = Path(data_dir)
         self._docs: dict[str, dict] = {}   # id → doc
-
-    # ------------------------------------------------------------------
-    # Loading
-    # ------------------------------------------------------------------
 
     def load_all(self) -> "DocumentStore":
         """Load every JSONL file found under *data_dir*."""
@@ -86,10 +60,6 @@ class DocumentStore:
                 doc = self._normalise(raw, category=category)
                 self._docs[doc["id"]] = doc
 
-    # ------------------------------------------------------------------
-    # Normalisation
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _normalise(raw: dict, category: str) -> dict:
         """
@@ -97,16 +67,16 @@ class DocumentStore:
 
         Canonical schema
         ----------------
-        id          str  – unique identifier (URL preferred)
+        id          str   unique identifier (URL preferred)
         url         str
         title       str
         content     str
         author      str | None
-        date        str | None  – ISO-8601
-        scraped_at  str | None  – ISO-8601
+        date        str | None   ISO-8601
+        scraped_at  str | None   ISO-8601
         source      str
         tags        list[str]
-        category    str         – "mobile" | "pc" | "general"
+        category    str          "mobile" | "pc" | "general"
         brand       str | None
         os          str | None
         device_name str | None
@@ -135,9 +105,6 @@ class DocumentStore:
             "metadata":    raw.get("metadata") or {},
         }
 
-    # ------------------------------------------------------------------
-    # Access
-    # ------------------------------------------------------------------
 
     def get_by_id(self, doc_id: str) -> dict | None:
         """Return the document with the given *doc_id* or None."""
@@ -162,9 +129,6 @@ class DocumentStore:
         cats = {c: len(self.get_by_category(c)) for c in self.CATEGORIES}
         return f"DocumentStore(total={len(self)}, by_category={cats})"
 
-    # ------------------------------------------------------------------
-    # Persistence (optional snapshot)
-    # ------------------------------------------------------------------
 
     def save_snapshot(self, path: str | Path) -> None:
         """Write all documents to a single JSONL snapshot file."""

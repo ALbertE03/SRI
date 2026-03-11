@@ -1,78 +1,3 @@
-"""
-LSI (Latent Semantic Indexing) Retriever for SRI.
-
-Bibliographic Source
---------------------
-Primary:
-    Deerwester, S., Dumais, S. T., Furnas, G. W., Landauer, T. K., &
-    Harshman, R. (1990). Indexing by Latent Semantic Analysis.
-    Journal of the American Society for Information Science, 41(6), 391-407.
-    https://doi.org/10.1002/(SICI)1097-4571(199009)41:6<391::AID-ASI1>3.0.CO;2-9
-
-Secondary (implementation details):
-    Manning, C. D., Raghavan, P., & Schutze, H. (2008).
-    Introduction to Information Retrieval. Cambridge University Press.
-    Chapter 18: Matrix decompositions & latent semantic indexing.
-    https://nlp.stanford.edu/IR-book/
-
-Why LSI for this corpus?
-------------------------
-The tech-news corpus is bilingual (Spanish + English) and synonym-rich:
-"movil/smartphone/telefono", "procesador/chip/CPU", "pantalla/display/screen".
-BM25 (the primary retriever) requires exact stemmed-token overlap, so a query
-in Spanish will score poorly against a document written in English that covers
-the same concept.  LSI overcomes this by discovering *latent topics* shared
-across the vocabulary:
-
-1. Synonym handling: Terms that co-occur in similar documents are projected
-   onto nearby directions in the k-dimensional LSI space. A query using
-   "movil camara" and a document using "smartphone photography" end up with
-   high cosine similarity even without a single shared token.
-
-2. Polysemy resolution: Terms like "galaxy" (Samsung device vs. astronomy)
-   or "apple" (company vs. fruit) obtain context-dependent representations
-   because SVD separates co-occurrence patterns from different topics into
-   different singular vectors.
-
-3. Noise filtering: Tech pages contain boilerplate (navigation, ads, social
-   buttons). The rank-k SVD approximation retains the dominant topical
-   signal and discards these noisy, low-variance dimensions.
-
-4. Complementary to BM25: LSI soft-matches semantically related documents
-   (high recall), while BM25 is precise for exact technical model names
-   (e.g., "Snapdragon 8 Elite", "M4 Pro"). Combining both layers yields a
-   strong hybrid system.
-
-Algorithm
----------
-Given a corpus of N documents and a vocabulary of V terms:
-
-1. Build a TF-IDF matrix  A  of shape (N, V):
-     tf(t, d)  = count(t in d) / |d|
-     idf(t)    = log( (N+1) / (df(t)+1) ) + 1     (smoothed)
-     tfidf(t,d)= tf(t,d) * idf(t)
-   Rows are L2-normalised.
-
-2. Truncated SVD:  A ≈ U_k · Sigma_k · Vt_k
-   where  k = n_components  (default 200)
-   sklearn's TruncatedSVD.fit_transform(A)  returns  U_k · Sigma_k
-   (shape N x k), which are the document LSI vectors.
-
-3. L2-normalise document LSI vectors (stored as _doc_matrix).
-
-4. For a query q:
-   a. Build q as a 1 x V TF-IDF vector with the same IDF weights.
-   b. "Fold in": q_lsi = TruncatedSVD.transform(q)  →  1 x k
-      (equivalent to q · Vt_k^T; sklearn handles this via the fitted
-       components_ matrix)
-   c. L2-normalise q_lsi.
-
-5. cosine_sim(d_j, q) = _doc_matrix[j] · q_lsi^T
-   (already normalised, so dot product = cosine similarity)
-
-6. Rank documents by descending cosine similarity.
-"""
-
 from __future__ import annotations
 
 import pickle
@@ -127,9 +52,6 @@ class LSIRetriever:
         self._doc_info:   dict[str, dict]     = {}
         self._N:          int                 = 0
 
-    # ------------------------------------------------------------------
-    # Build
-    # ------------------------------------------------------------------
 
     @classmethod
     def from_inverted_index(
@@ -153,7 +75,6 @@ class LSIRetriever:
         """
         obj = cls(n_components=n_components, normalizer=index.normalizer)
 
-        # ---- Document order (stable: matches _doc_info insertion order) --
         obj._doc_ids = list(index._doc_info.keys())
         obj._doc_info = {
             doc_id: {
@@ -170,7 +91,6 @@ class LSIRetriever:
 
         doc_id_to_row = {doc_id: i for i, doc_id in enumerate(obj._doc_ids)}
 
-        # ---- Vocabulary (sorted → reproducible column indices) -----------
         vocab_terms = sorted(index._vocab)
         obj._vocab  = {term: col for col, term in enumerate(vocab_terms)}
         V = len(obj._vocab)
@@ -193,15 +113,15 @@ class LSIRetriever:
 
         tf_sparse: csr_matrix = csr_matrix(tf_matrix)
 
-        # ---- IDF weights  (V,) ------------------------------------------
+        #  IDF weights  (V,) 
         df = np.array((tf_sparse > 0).sum(axis=0)).flatten().astype(np.float32)
         obj._idf = (np.log((N + 1) / (df + 1)) + 1).astype(np.float32)
 
-        # ---- TF-IDF + L2 row normalisation -------------------------------
+        #  TF-IDF + L2 row normalisation 
         tfidf: csr_matrix = tf_sparse.multiply(obj._idf)
         tfidf = normalize(tfidf, norm="l2")
 
-        # ---- Truncated SVD -----------------------------------------------
+        #  Truncated SVD 
         k = min(n_components, N - 1, V - 1)
         if k < 1:
             raise ValueError(
@@ -224,10 +144,6 @@ class LSIRetriever:
             f"{k} LSI components | explained variance: {explained:.3f}"
         )
         return obj
-
-    # ------------------------------------------------------------------
-    # Retrieval
-    # ------------------------------------------------------------------
 
     def _vectorize_query(self, query: str) -> np.ndarray:
         """
@@ -286,7 +202,7 @@ class LSIRetriever:
                 "Call from_inverted_index() or load() first."
             )
 
-        # 1. Project query into LSI space
+        #  Project query into LSI space
         q_tfidf = self._vectorize_query(query)            # (1, V)
         q_lsi   = self._svd.transform(q_tfidf)            # (1, k)
 
@@ -294,12 +210,12 @@ class LSIRetriever:
         if q_norm > 0:
             q_lsi /= q_norm
 
-        # 2. Cosine similarities
+        #  Cosine similarities
         #    _doc_matrix: (N, k) L2-normalised
         #    q_lsi:       (1, k) L2-normalised
         sims: np.ndarray = (self._doc_matrix @ q_lsi.T).flatten()  # (N,)
 
-        # 3. Rank descending
+        #  Rank descending
         ranked_indices = np.argsort(sims)[::-1]
 
         results: list[dict] = []
@@ -332,9 +248,6 @@ class LSIRetriever:
 
         return results
 
-    # ------------------------------------------------------------------
-    # Persistence
-    # ------------------------------------------------------------------
 
     def save(self, directory: str | Path) -> None:
         """Persist the fitted LSI model to *directory*."""
@@ -382,7 +295,6 @@ class LSIRetriever:
         if not model_path.exists():
             raise FileNotFoundError(
                 f"LSI model not found at {model_path}. "
-                "Run `python main.py lsi-build` first."
             )
 
         with open(model_path, "rb") as fh:
@@ -397,10 +309,6 @@ class LSIRetriever:
         obj._doc_info     = data["doc_info"]
         obj._N            = data["N"]
         return obj
-
-    # ------------------------------------------------------------------
-    # Info
-    # ------------------------------------------------------------------
 
     def __repr__(self) -> str:
         k = self._svd.n_components if self._svd is not None else 0

@@ -58,8 +58,8 @@ print(f"  Input : {raw}")
 print(f"  Tokens: {tokens}")
 
 # ─────────────────────────────────────────────────────────────────────
-# 3. InvertedIndex (BM25) — base para LSI
-# ─────────────────────────────────────────────────────────────────────
+# 3. InvertedIndex — base de datos estructural para LSI
+# ─────────────────────────────────────────────────────────────────
 print(f"\n{SEP}")
 print("  MODULE: src.indexing.indexer  →  InvertedIndex")
 print(SEP)
@@ -67,7 +67,7 @@ print(SEP)
 idx = InvertedIndex(normalizer=norm)
 idx.build(docs)
 print(f"  {idx}")
-idx.save("indexes/bm25")
+idx.save("indexes/index")
 
 # ─────────────────────────────────────────────────────────────────────
 # 4. LSI Retriever + QueryProcessor (pipeline completo)
