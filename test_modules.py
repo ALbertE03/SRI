@@ -2,17 +2,17 @@
 Quick integration test for the indexing and retrieval modules.
 Usage:  uv run python test_modules.py
 """
+
 from src.indexing.storage import DocumentStore
 from src.indexing.indexer import InvertedIndex, TextNormalizer
 from src.retrieval.lsi_retriever import LSIRetriever
 from src.retrieval.query_processor import QueryProcessor
+from src.vector_db import LSIEmbeddings, VectorStore
+import numpy as np
 
 SEP = "=" * 60
 
 
-# ─────────────────────────────────────────────────────────────────────
-# 1. DocumentStore
-# ─────────────────────────────────────────────────────────────────────
 print(f"\n{SEP}")
 print("  MODULE: src.indexing.storage  →  DocumentStore")
 print(SEP)
@@ -93,17 +93,12 @@ pipeline_queries = [
 ]
 
 for raw_q in pipeline_queries:
-    # 1. QueryProcessor: normaliza, expande sinónimos e infiere categoría
+    # 1. QueryProcessor: normaliza y expande sinónimos via WordNet
     pq = qp.process(raw_q)
     print(f"\n  Query original : '{pq.original}'")
     print(f"  Query expandida: '{pq.text}'")
-    print(f"  Categoría inf. : {pq.category}")
-    # 2. LSIRetriever: busca con la query expandida y filtra por categoría
-    results = lsi.retrieve(
-        pq.text,
-        top_k=3,
-        category_filter=pq.category,
-    )
+    # 2. LSIRetriever: busca con la query expandida
+    results = lsi.retrieve(pq.text, top_k=3)
     print(f"  Resultados ({len(results)}):")
     for r in results:
         print(f"    [{r['score']:.4f}] {r['title'][:60]}")
@@ -113,6 +108,57 @@ lsi2 = LSIRetriever.load("indexes/lsi")
 pq2 = qp.process("Apple iOS chip")
 rt = lsi2.retrieve(pq2.text, top_k=2)
 print(f"\n  Round-trip load OK: {lsi2}")
+
+# ─────────────────────────────────────────────────────────────────────
+# 5. VectorStore + LSIEmbeddings (base de datos vectorial)
+# ─────────────────────────────────────────────────────────────────────
+print(f"\n{SEP}")
+print("  MODULE: src.vector_db  →  LSIEmbeddings + VectorStore")
+print(SEP)
+
+# Fit embeddings on the same documents
+emb = LSIEmbeddings(n_components=n_components, normalizer=norm)
+emb.fit(docs)
+print(f"  {emb}")
+
+# Build vector store manually (showing the separation of responsibilities)
+doc_ids = []
+doc_info = {}
+texts = []
+for d in docs:
+    did = str(d.get("id") or d.get("url", ""))
+    doc_ids.append(did)
+    doc_info[did] = d
+    texts.append(f"{d.get('title','')} {d.get('content','')}")
+
+# 1. Transform text to vectors via Embeddings
+vectors = np.array(emb.embed_documents(texts))
+
+# 2. Setup VectorStore with pre-computed vectors
+vs = VectorStore(embeddings=emb)
+vs.setup(doc_ids, vectors, doc_info)
+print(f"  {vs}")
+print(f"  Stats: {vs.stats()}")
+
+# Search
+vs_queries = [
+    "mejor cámara de teléfono",
+    "laptop gaming rendimiento",
+    "Samsung Galaxy inteligencia artificial",
+]
+
+for q in vs_queries:
+    pq = qp.process(q)
+    # Search is now much cleaner
+    results = vs.search(pq.text, top_k=3)
+    print(f"\n  VectorStore query: '{q}'")
+    for r in results:
+        print(f"    [{r['score']:.4f}] {r['title'][:60]}")
+
+# Save & load round-trip
+vs.save("indexes/vector_store")
+vs2 = VectorStore.load("indexes/vector_store")
+print(f"\n  Round-trip load OK: {vs2}")
 
 print(f"\n{SEP}")
 print("  ALL TESTS PASSED")

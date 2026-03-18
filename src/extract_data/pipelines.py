@@ -9,15 +9,53 @@ from .items import MobileItem, PCItem
 
 
 class DuplicatesPipeline:
-    """Drops items with URLs already seen in the current crawl session."""
+    """Drops items with URLs already seen in current and past crawl sessions."""
 
-    def __init__(self):
+    def open_spider(self, spider):
         self.urls_seen = set()
 
+        data_dir_setting = spider.settings.get("DATA_DIR")
+        if data_dir_setting:
+            data_dir = Path(data_dir_setting)
+        else:
+            data_dir = Path(__file__).resolve().parent.parent.parent / "data"
+
+        self.seen_urls_file = data_dir / "seen_urls.txt"
+
+        if self.seen_urls_file.exists():
+            with open(self.seen_urls_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    url = line.strip()
+                    if url:
+                        self.urls_seen.add(url)
+            spider.logger.info(
+                f"[DuplicatesPipeline] Loaded {len(self.urls_seen)} URLs from {self.seen_urls_file}"
+            )
+        else:
+            spider.logger.info(
+                f"[DuplicatesPipeline] No seen URLs file found at {self.seen_urls_file}"
+            )
+
+        self.file = open(self.seen_urls_file, "a", encoding="utf-8")
+
+    def close_spider(self, spider):
+
+        if hasattr(self, "file"):
+            self.file.close()
+
     def process_item(self, item, spider):
-        if item.get("url") in self.urls_seen:
-            raise DropItem(f"Duplicate item found: {item['url']}")
-        self.urls_seen.add(item["url"])
+        url = item.get("url")
+        if not url:
+            return item
+
+        if url in self.urls_seen:
+            raise DropItem(f"Duplicate item found: {url}")
+
+        self.urls_seen.add(url)
+
+        self.file.write(url + "\n")
+        self.file.flush()
+
         return item
 
 
@@ -41,25 +79,19 @@ class JsonStoragePipeline:
     appended rather than overwriting the entire file.
     """
 
-    # Relative path from project root; overridden by DATA_DIR setting
     DEFAULT_DATA_DIR = os.path.join(
-        os.path.dirname(          # src/extract_data/
-            os.path.dirname(      # src/
-                os.path.dirname(  # project root
-                    os.path.abspath(__file__)
-                )
+        os.path.dirname(  # src/extract_data/
+            os.path.dirname(  # src/
+                os.path.dirname(os.path.abspath(__file__))  # project root
             )
         ),
         "data",
     )
 
     def open_spider(self, spider):
-        data_dir = Path(
-            spider.settings.get("DATA_DIR", self.DEFAULT_DATA_DIR)
-        )
+        data_dir = Path(spider.settings.get("DATA_DIR", self.DEFAULT_DATA_DIR))
         date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-        # Resolve sub-directory by spider name convention
         if "mobile" in spider.name or spider.name in (
             "apple_newsroom",
             "xataka_mobile",
@@ -84,4 +116,3 @@ class JsonStoragePipeline:
         line = json.dumps(dict(item), ensure_ascii=False)
         self._file.write(line + "\n")
         return item
-

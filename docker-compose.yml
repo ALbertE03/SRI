@@ -4,9 +4,9 @@ services:
     build: .
     image: sri-app
     volumes:
-      - ./data:/app/data        # persist scraped data on host
-      - ./logs:/app/logs        # persist logs on host
-      - ./indexes:/app/indexes  # persist indexes on host
+      - ./data:/app/data       
+      - ./logs:/app/logs        
+      - ./indexes:/app/indexes  
     command: >
       /bin/sh -c "
         uv run scrapy crawl xataka_mobile > logs/xataka_mobile.log 2>&1 &
