@@ -185,7 +185,7 @@ class LSIEmbeddings(Embeddings):
             if term in self._vocab:
                 vec[self._vocab[term]] = math.log1p(count)
 
-        # 2. L2-normalize query term vector
+        #  L2-normalize query term vector
         norm = float(np.linalg.norm(vec))
         if norm > 0:
             vec /= norm
