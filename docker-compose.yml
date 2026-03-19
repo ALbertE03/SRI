@@ -23,10 +23,24 @@ services:
       - ./indexes:/app/indexes
     command: uv run python -m src.indexing.indexer
 
+  chroma:
+    image: chromadb/chroma:0.6.0
+    volumes:
+      - ./indexes/chroma:/chroma/data
+    ports:
+      - "8001:8000"
+    environment:
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/chroma/data
+
   vector-index:
     image: sri-app
     depends_on:
       - index
+      - chroma
+    environment:
+      - CHROMA_HOST=chroma
+      - CHROMA_PORT=8000
     volumes:
       - ./data:/app/data
       - ./indexes:/app/indexes
@@ -36,6 +50,10 @@ services:
     image: sri-app
     depends_on:
       - vector-index
+      - chroma
+    environment:
+      - CHROMA_HOST=chroma
+      - CHROMA_PORT=8000
     volumes:
       - ./data:/app/data
       - ./indexes:/app/indexes

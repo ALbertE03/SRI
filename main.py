@@ -45,7 +45,7 @@ def run_query_interface():
     print(f"\n[Search] Starting interactive search interface...")
 
     lsi_path = Path("indexes/lsi")
-    if not (lsi_path / "vector_store.pkl").exists():
+    if not (lsi_path / "lsi_model.pkl").exists():
         print(f"[Search] Error: Vector Store not found at {lsi_path}. Run build first.")
         return
 

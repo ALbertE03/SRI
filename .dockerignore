@@ -22,7 +22,10 @@ logs/
 .git/
 .gitignore
 .vscode/
+# Ignore all markdown except the main ones
 *.md
+!README.md
+!sistem.md
 report/
 
 # Tests

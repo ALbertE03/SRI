@@ -13,4 +13,6 @@ dependencies = [
     "scikit-learn==1.6",
     "langchain==1.2.10",
     "langchain-huggingface>=1.2.1",
+    "chromadb",
+    "onnxruntime<1.19.0",
 ]

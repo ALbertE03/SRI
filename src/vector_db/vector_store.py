@@ -1,213 +1,160 @@
-"""
-In-memory vector store for document embeddings.
-
-This module provides a pure storage and search layer. It does not
-know how to generate embeddings; it simply stores vectors and
-performs cosine-similarity search.
-"""
-
 from __future__ import annotations
 
-import json
-import pickle
+import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+import chromadb
+from chromadb.config import Settings
 import numpy as np
 
-from src.vector_db.embeddings import LSIEmbeddings
+if TYPE_CHECKING:
+    from src.vector_db.embeddings import LSIEmbeddings
 
 
 class VectorStore:
     """
-    In-memory vector database for dense embeddings.
+    Vector database using Chroma DB for storage and retrieval.
 
     Parameters
     ----------
     embeddings : LSIEmbeddings | None
-        An optional embedding model used for query transformation
-        during search and for incremental document addition.
+        An optional embedding model used for query transformation during search.
     """
 
-    STORE_FILE = "vector_store.pkl"
-    META_FILE = "vector_store_meta.json"
+    COLLECTION_NAME = "sri_documents"
 
     def __init__(self, embeddings: LSIEmbeddings | None = None) -> None:
         self._embeddings = embeddings
 
-        # Internal state
-        self._doc_vectors: np.ndarray | None = None  # (N, D) L2-normalised
-        self._doc_ids: list[str] = []
-        self._doc_info: dict[str, dict] = {}
-        self._N: int = 0
-        self._dims: int = 0
+        # Connect to Chroma
+        host = os.getenv("CHROMA_HOST")
+        if host:
+            # Docker / Remote mode
+            port = int(os.getenv("CHROMA_PORT", 8000))
+            print(f"[VectorStore] Connecting to Chroma at {host}:{port}...")
+            self._client = chromadb.HttpClient(host=host, port=port)
+        else:
+            # Local mode
+            persist_dir = str(Path("indexes/chroma").absolute())
+            print(f"[VectorStore] Using local Chroma at {persist_dir}...")
+            self._client = chromadb.PersistentClient(path=persist_dir)
+
+        self._collection = self._client.get_or_create_collection(
+            name=self.COLLECTION_NAME, metadata={"hnsw:space": "cosine"}
+        )
 
     def setup(
         self, doc_ids: list[str], vectors: np.ndarray, doc_info: dict[str, dict]
     ) -> None:
         """
         Initialise the store with pre-computed vectors and metadata.
-
-        Parameters
-        ----------
-        doc_ids : List of document IDs.
-        vectors : NumPy matrix (N, D) of document vectors.
-        doc_info : Dictionary mapping doc_id to its metadata.
         """
         if len(doc_ids) != vectors.shape[0]:
             raise ValueError("Size mismatch between IDs and vectors.")
 
-        self._doc_ids = list(doc_ids)
-        self._doc_vectors = vectors.astype(np.float32)
-        self._doc_info = dict(doc_info)
-        self._N = len(self._doc_ids)
-        self._dims = self._doc_vectors.shape[1]
+        # Chroma expects list of lists for embeddings
+        embeddings_list = vectors.astype(float).tolist()
 
-        print(
-            f"[VectorStore] Initialised: {self._N} documents | "
-            f"{self._dims} dimensions"
+        # metadatas is a list of dicts corresponding to ids
+        metadatas = [doc_info[did] for did in doc_ids]
+
+        # Batch add/upsert
+        print(f"[VectorStore] Upserting {len(doc_ids)} documents to Chroma...")
+        self._collection.upsert(
+            ids=doc_ids, embeddings=embeddings_list, metadatas=metadatas
         )
+        print(f"[VectorStore] Initialised with {self._collection.count()} documents.")
 
     def search(
         self, query: str | list[float] | np.ndarray, top_k: int = 10
     ) -> list[dict]:
         """
-        Rank documents by cosine similarity.
-
-        Parameters
-        ----------
-        query : Either a raw string (needs self._embeddings), or a pre-computed vector.
-        top_k : Number of results to return.
-
-        Returns
-        -------
-        List of result dicts with doc_id, score, and metadata.
+        Rank documents by similarity using Chroma.
         """
-        if self._doc_vectors is None:
-            raise RuntimeError("VectorStore is empty. Call setup() first.")
-
         # Convert query to vector if it's a string
         if isinstance(query, str):
             if self._embeddings is None:
-                raise RuntimeError(
-                    "Cannot search string query without embeddings model."
-                )
-            q_vec = np.array(self._embeddings.embed_query(query), dtype=np.float32)
+                raise RuntimeError("Need embeddings model to search raw strings.")
+            q_vec = self._embeddings.embed_query(query)
         else:
-            q_vec = np.array(query, dtype=np.float32)
+            q_vec = list(query) if isinstance(query, np.ndarray) else query
 
-        q_vec = q_vec.reshape(1, -1)
+        # Query Chroma
+        results = self._collection.query(
+            query_embeddings=[q_vec],
+            n_results=top_k,
+            include=["metadatas", "distances"],
+        )
 
-        # Ensure query is L2-normalised (doc vectors should already be)
-        q_norm = float(np.linalg.norm(q_vec))
-        if q_norm > 0:
-            q_vec /= q_norm
+        # Format output to match previous interface
+        output = []
+        if not results["ids"]:
+            return output
 
-        # Cosine similarity
-        similarities = (self._doc_vectors @ q_vec.T).flatten()
+        for i, (doc_id, metadata, distance) in enumerate(
+            zip(results["ids"][0], results["metadatas"][0], results["distances"][0]),
+            start=1,
+        ):
 
-        # Rank descending
-        ranked_indices = np.argsort(similarities)[::-1][:top_k]
+            # So score = 1 - distance
+            score = 1.0 - float(distance)
 
-        results = []
-        for rank, idx in enumerate(ranked_indices, start=1):
-            doc_id = self._doc_ids[int(idx)]
-            info = self._doc_info.get(doc_id, {})
-            results.append(
+            output.append(
                 {
-                    "rank": rank,
+                    "rank": i,
                     "doc_id": doc_id,
-                    "score": round(float(similarities[int(idx)]), 6),
-                    "title": info.get("title", ""),
-                    "url": info.get("url", doc_id),
-                    "source": info.get("source", ""),
-                    "date": info.get("date", ""),
-                    "tags": info.get("tags", []),
-                    "category": info.get("category", ""),
+                    "score": round(score, 6),
+                    "title": metadata.get("title", ""),
+                    "url": metadata.get("url", doc_id),
+                    "source": metadata.get("source", ""),
+                    "date": metadata.get("date", ""),
+                    "tags": metadata.get("tags", []),
+                    "category": metadata.get("category", ""),
                 }
             )
 
-        return results
+        return output
 
     def add_document(self, document: dict) -> None:
         """
         Add a single document. Requires self._embeddings.
         """
         if self._embeddings is None:
-            raise RuntimeError("Need embeddings model to add raw documents.")
-        if self._doc_vectors is None:
-            raise RuntimeError("Initialise with setup() first.")
+            raise RuntimeError("Need embeddings model to add documents.")
 
         doc_id = str(document.get("id") or document.get("url", ""))
         text = f"{document.get('title', '')} {document.get('content', '')}"
+        vec = self._embeddings.embed_query(text)
 
-        vec = np.array(self._embeddings.embed_query(text), dtype=np.float32).reshape(
-            1, -1
-        )
-
-        self._doc_vectors = np.vstack([self._doc_vectors, vec])
-        self._doc_ids.append(doc_id)
-        self._doc_info[doc_id] = {
-            "title": document.get("title", ""),
-            "url": document.get("url", ""),
-            "source": document.get("source", ""),
-            "date": document.get("date", ""),
-            "tags": document.get("tags", []),
-            "category": document.get("category", ""),
+        # Clean metadata for Chroma (must be str, int, float, or bool)
+        metadata = {
+            k: v
+            for k, v in document.items()
+            if k not in ("id", "content") and isinstance(v, (str, int, float, bool))
         }
-        self._N += 1
+
+        self._collection.upsert(ids=[doc_id], embeddings=[vec], metadatas=[metadata])
 
     def save(self, directory: str | Path) -> None:
-        """Persist the vector store to *directory*."""
-        path = Path(directory)
-        path.mkdir(parents=True, exist_ok=True)
-
-        with open(path / self.STORE_FILE, "wb") as fh:
-            pickle.dump(
-                {
-                    "embeddings": self._embeddings,
-                    "doc_vectors": self._doc_vectors,
-                    "doc_ids": self._doc_ids,
-                    "doc_info": self._doc_info,
-                    "N": self._N,
-                    "dims": self._dims,
-                },
-                fh,
-                protocol=pickle.HIGHEST_PROTOCOL,
-            )
-
-        meta = {
-            "num_documents": self._N,
-            "embedding_dimensions": self._dims,
-        }
-        with open(path / self.META_FILE, "w", encoding="utf-8") as fh:
-            json.dump(meta, fh, indent=2, ensure_ascii=False)
-
-        print(f"[VectorStore] Saved to {path / self.STORE_FILE}")
+        """In-process persistence is handled by PersistentClient."""
+        print(
+            f"[VectorStore] Data persistent in Chroma collection '{self.COLLECTION_NAME}'"
+        )
 
     @classmethod
-    def load(cls, directory: str | Path) -> "VectorStore":
-        """Load a previously saved vector store from *directory*."""
-        path = Path(directory)
-        store_path = path / cls.STORE_FILE
-        if not store_path.exists():
-            raise FileNotFoundError(f"Vector store not found at {store_path}.")
-
-        with open(store_path, "rb") as fh:
-            data = pickle.load(fh)
-
-        obj = cls(embeddings=data["embeddings"])
-        obj._doc_vectors = data["doc_vectors"]
-        obj._doc_ids = data["doc_ids"]
-        obj._doc_info = data["doc_info"]
-        obj._N = data["N"]
-        obj._dims = data["dims"]
-        return obj
-
-    def __repr__(self) -> str:
-        return f"VectorStore(docs={self._N}, dims={self._dims})"
+    def load(
+        cls, directory: str | Path, embeddings: LSIEmbeddings | None = None
+    ) -> "VectorStore":
+        """Load the store."""
+        # Note: directory argument is ignored if using local persistent path in __init__
+        return cls(embeddings=embeddings)
 
     def stats(self) -> dict:
         return {
-            "num_documents": self._N,
-            "embedding_dimensions": self._dims,
+            "num_documents": self._collection.count(),
+            "collection_name": self.COLLECTION_NAME,
         }
+
+    def __repr__(self) -> str:
+        return f"VectorStore(Chroma: {self.COLLECTION_NAME}, docs={self._collection.count()})"

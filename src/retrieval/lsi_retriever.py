@@ -91,12 +91,13 @@ class LSIRetriever:
         path = Path(directory)
         path.mkdir(parents=True, exist_ok=True)
 
-        # Save VectorStore (which includes embeddings)
+        # Save VectorStore (tells Chroma to ensure persistence)
         if self.vector_store:
             self.vector_store.save(directory)
 
-        # Save retriever specific state
+        # Save LSI model and retriever specific state
         state = {
+            "embeddings": self.embeddings,
             "normalizer": self.normalizer,
         }
         with open(path / self.MODEL_FILE, "wb") as fh:
@@ -108,22 +109,27 @@ class LSIRetriever:
     def load(cls, directory: str | Path) -> "LSIRetriever":
         """Load a persisted retriever from a directory."""
         path = Path(directory)
-
-        # Load VectorStore
-        vs = VectorStore.load(directory)
-
-        # Load retriever state
         model_path = path / cls.MODEL_FILE
-        if not model_path.exists():
-            return cls(vector_store=vs, embeddings=vs._embeddings)
 
+        if not model_path.exists():
+            # Fallback
+            vs = VectorStore()
+            return cls(vector_store=vs)
+
+        #  Load embeddings and normalizer
         with open(model_path, "rb") as fh:
             state = pickle.load(fh)
 
+        embeddings = state.get("embeddings")
+        normalizer = state.get("normalizer")
+
+        # Load VectorStore with the embeddings
+        vs = VectorStore.load(directory, embeddings=embeddings)
+
         return cls(
             vector_store=vs,
-            embeddings=vs._embeddings,
-            normalizer=state.get("normalizer"),
+            embeddings=embeddings,
+            normalizer=normalizer,
         )
 
     def stats(self) -> dict:

@@ -8,8 +8,8 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 WORKDIR /app
 
-COPY pyproject.toml .
-COPY scrapy.cfg .
+COPY pyproject.toml uv.lock ./
+COPY scrapy.cfg main.py README.md sistem.md ./
 
 RUN uv sync --no-dev
 
@@ -18,19 +18,19 @@ COPY src/ src/
 RUN mkdir -p data/mobile data/pc logs indexes/index indexes/lsi
 
 RUN python -c "\
-    import urllib.request, zipfile, io, os; \
-    base = 'https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/packages'; \
-    dest_root = '/usr/local/share/nltk_data'; \
-    resources = [ \
-    ('corpora/wordnet.zip',        'corpora'), \
-    ('tokenizers/punkt_tab.zip',   'tokenizers'), \
-    ('corpora/stopwords.zip',      'corpora'), \
-    ]; \
-    [( \
-    os.makedirs(dest_root + '/' + d, exist_ok=True), \
-    zipfile.ZipFile(io.BytesIO(urllib.request.urlopen(base + '/' + p).read())).extractall(dest_root + '/' + d) \
-    ) for p, d in resources] \
-    "
+import urllib.request, zipfile, io, os; \
+base = 'https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/packages'; \
+dest_root = '/usr/local/share/nltk_data'; \
+resources = [ \
+('corpora/wordnet.zip',        'corpora'), \
+('tokenizers/punkt_tab.zip',   'tokenizers'), \
+('corpora/stopwords.zip',      'corpora'), \
+]; \
+[( \
+os.makedirs(dest_root + '/' + d, exist_ok=True), \
+zipfile.ZipFile(io.BytesIO(urllib.request.urlopen(base + '/' + p).read())).extractall(dest_root + '/' + d) \
+) for p, d in resources] \
+"
 
 
 CMD ["/bin/sh", "-c", \
