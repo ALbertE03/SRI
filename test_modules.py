@@ -1,8 +1,3 @@
-"""
-Quick integration test for the indexing and retrieval modules.
-Usage:  uv run python test_modules.py
-"""
-
 from src.indexing.storage import DocumentStore
 from src.indexing.indexer import InvertedIndex, TextNormalizer
 from src.retrieval.lsi_retriever import LSIRetriever

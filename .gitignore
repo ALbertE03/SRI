@@ -5,7 +5,8 @@ __pycache__/
 
 # C extensions
 *.so
-
+sistem.md
+start.sh
 # Distribution / packaging
 .Python
 build/

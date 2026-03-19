@@ -28,12 +28,9 @@ from nltk.stem import SnowballStemmer
 from nltk.tokenize import word_tokenize
 
 
+# Stop-words: Spanish
 
-# Stop-words: Spanish 
-
-_STOP_WORDS: frozenset[str] = frozenset(
-    stopwords.words("spanish")
-)
+_STOP_WORDS: frozenset[str] = frozenset(stopwords.words("spanish"))
 
 
 class TextNormalizer:
@@ -69,10 +66,8 @@ class TextNormalizer:
         # tokenize
         tokens = word_tokenize(text, language="spanish")
 
-        #filter stop-words and short tokens
+        # filter stop-words and short tokens
         tokens = [t for t in tokens if t not in _STOP_WORDS and len(t) > 1]
-
-        
 
         return tokens
 
@@ -96,7 +91,7 @@ class InvertedIndex:
     """
 
     INDEX_FILE = "inverted_index.pkl"
-    META_FILE  = "index_meta.json"
+    META_FILE = "index_meta.json"
 
     def __init__(
         self,
@@ -109,7 +104,6 @@ class InvertedIndex:
         self._N: int = 0
         self._vocab: set[str] = set()
 
-  
     def build(self, documents: list[dict]) -> None:
         """
         Build the index from *documents*.
@@ -119,13 +113,13 @@ class InvertedIndex:
             - "content" : str – main text to index
             - "title"   : str (optional) – boosted at index time
         """
-        self._index    = defaultdict(dict)
+        self._index = defaultdict(dict)
         self._doc_info = {}
-        self._N        = 0
+        self._N = 0
 
         for doc in documents:
-            doc_id  = str(doc.get("id") or doc.get("url", ""))
-            title   = doc.get("title", "") or ""
+            doc_id = str(doc.get("id") or doc.get("url", ""))
+            title = doc.get("title", "") or ""
             content = doc.get("content", "") or ""
 
             text = title + " " + content
@@ -141,19 +135,17 @@ class InvertedIndex:
                 self._index[term][doc_id] = count
 
             self._doc_info[doc_id] = {
-                "length":  doc_length,
-                "title":   title,
-                "url":     doc.get("url", ""),
-                "source":  doc.get("source", ""),
-                "date":    doc.get("date", ""),
-                "tags":    doc.get("tags", []),
+                "length": doc_length,
+                "title": title,
+                "url": doc.get("url", ""),
+                "source": doc.get("source", ""),
+                "date": doc.get("date", ""),
+                "tags": doc.get("tags", []),
                 "category": doc.get("category", ""),
             }
             self._N += 1
 
         self._vocab = set(self._index.keys())
-
-
 
     def save(self, directory: str | Path) -> None:
         """Persist the index to *directory* (created if absent)."""
@@ -163,17 +155,16 @@ class InvertedIndex:
         with open(path / self.INDEX_FILE, "wb") as fh:
             pickle.dump(
                 {
-                    "index":    dict(self._index),
+                    "index": dict(self._index),
                     "doc_info": self._doc_info,
-                    "N":        self._N,
+                    "N": self._N,
                 },
-
                 fh,
                 protocol=pickle.HIGHEST_PROTOCOL,
             )
 
         meta = {
-            "num_documents":  self._N,
+            "num_documents": self._N,
             "vocabulary_size": len(self._vocab),
         }
         with open(path / self.META_FILE, "w", encoding="utf-8") as fh:
@@ -192,21 +183,41 @@ class InvertedIndex:
             data = pickle.load(fh)
 
         idx = cls()
-        idx._index    = defaultdict(dict, data["index"])
+        idx._index = defaultdict(dict, data["index"])
         idx._doc_info = data["doc_info"]
-        idx._N        = data["N"]
-        idx._vocab    = set(idx._index.keys())
+        idx._N = data["N"]
+        idx._vocab = set(idx._index.keys())
         return idx
 
     def __repr__(self) -> str:
-        return (
-            f"InvertedIndex(docs={self._N}, "
-            f"vocab={len(self._vocab)})"
-        )
+        return f"InvertedIndex(docs={self._N}, " f"vocab={len(self._vocab)})"
 
     def stats(self) -> dict:
         """Return a summary dict of index statistics."""
         return {
-            "num_documents":   self._N,
+            "num_documents": self._N,
             "vocabulary_size": len(self._vocab),
         }
+
+
+if __name__ == "__main__":
+    from src.indexing.storage import DocumentStore
+    import sys
+
+    print(f"\n[Indexer] Building InvertedIndex...")
+
+    store = DocumentStore("data")
+    store.load_all()
+    documents = store.all()
+
+    if not documents:
+        print("[Indexer] Error: No documents found in data/ directory.")
+        sys.exit(1)
+
+    print(f"[Indexer] Loaded {len(documents)} documents.")
+
+    idx = InvertedIndex()
+    idx.build(documents)
+
+    idx.save("indexes/index")
+    print(f"[Indexer] Indexing complete.\n")

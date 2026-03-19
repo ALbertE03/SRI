@@ -4,9 +4,9 @@ services:
     build: .
     image: sri-app
     volumes:
-      - ./data:/app/data       
-      - ./logs:/app/logs        
-      - ./indexes:/app/indexes  
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./indexes:/app/indexes
     command: >
       /bin/sh -c "
         uv run scrapy crawl xataka_mobile > logs/xataka_mobile.log 2>&1 &
@@ -16,16 +16,29 @@ services:
 
   index:
     image: sri-app
+    depends_on:
+      - crawl
     volumes:
       - ./data:/app/data
       - ./indexes:/app/indexes
     command: uv run python -m src.indexing.indexer
 
+  vector-index:
+    image: sri-app
+    depends_on:
+      - index
+    volumes:
+      - ./data:/app/data
+      - ./indexes:/app/indexes
+    command: uv run python main.py --build
+
   query:
     image: sri-app
+    depends_on:
+      - vector-index
     volumes:
       - ./data:/app/data
       - ./indexes:/app/indexes
     stdin_open: true
     tty: true
-    command: uv run python main.py
+    command: uv run python main.py --query

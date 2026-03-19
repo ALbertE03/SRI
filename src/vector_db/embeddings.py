@@ -13,7 +13,7 @@ from src.indexing.indexer import TextNormalizer
 
 class LSIEmbeddings(Embeddings):
     """
-    LangChain-compatible embedding model using classic LSI.
+    LangChain embedding model using LSI.
 
     Parameters
     ----------
@@ -45,7 +45,7 @@ class LSIEmbeddings(Embeddings):
         if not documents:
             raise ValueError("Empty document list.")
 
-        # 1. Collect tokens and build vocabulary by frequency
+        # Collect tokens and build vocabulary by frequency
         token_lists = []
         df_counts: dict[str, int] = {}
         for doc in documents:
@@ -136,13 +136,26 @@ class LSIEmbeddings(Embeddings):
         )
 
     def transform_matrix(self, matrix: np.ndarray) -> np.ndarray:
-        """Project a pre-built Log-TF matrix into the latent space."""
+        """
+        Project a pre-built Log-TF matrix into the latent space.
+
+        Following Barbara Rosario (2000): q_hat = q^T * T * S^-1
+        """
         if not self._fitted or self._svd is None:
             raise RuntimeError("Not fitted.")
 
-        # Consistent with fit: normalize then SVD
+        #  Normalise input rows (documents)
         matrix = normalize(matrix, norm="l2")
+
+        # Project to latent space: raw_latent = matrix * V
+        # self._svd.transform(matrix) returns matrix * V
         latent = self._svd.transform(matrix)
+
+        # Scale by inverse of singular values (S^-1)
+        # This is the "folding-in" step described in the paper.
+        latent = latent / self._svd.singular_values_
+
+        # Final L2-normalisation of the reduced vectors
         return normalize(latent, norm="l2").astype(np.float32)
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
@@ -153,7 +166,10 @@ class LSIEmbeddings(Embeddings):
         return vectors
 
     def embed_query(self, text: str) -> list[float]:
-        """Embed a single text."""
+        """
+        Embed a single text using the LSI projection.
+        Formula: q_hat = q^T * T * S^-1
+        """
         if not self._fitted or self._svd is None:
             raise RuntimeError("Not fitted.")
 
@@ -162,27 +178,31 @@ class LSIEmbeddings(Embeddings):
         if not tokens:
             return [0.0] * self._svd.n_components
 
-        # Create log-TF vector
+        # Create log-TF vector (q)
         counts = Counter(tokens)
         vec = np.zeros(V, dtype=np.float32)
         for term, count in counts.items():
             if term in self._vocab:
                 vec[self._vocab[term]] = math.log1p(count)
 
-        # L2-normalize
+        # 2. L2-normalize query term vector
         norm = float(np.linalg.norm(vec))
         if norm > 0:
             vec /= norm
 
-        # Project
-        lsi_vec = self._svd.transform(vec.reshape(1, -1))
+        # Project: q * T
+        # svd.transform returns X * V
+        q_latent = self._svd.transform(vec.reshape(1, -1))
 
-        # Final normalize
-        lsi_norm = float(np.linalg.norm(lsi_vec))
-        if lsi_norm > 0:
-            lsi_vec /= lsi_norm
+        #  Scale by S^-1 (Singular Value scaling from paper)
+        q_latent = q_latent / self._svd.singular_values_
 
-        return lsi_vec.flatten().tolist()
+        #  Final L2-normalization for cosine similarity
+        q_norm = float(np.linalg.norm(q_latent))
+        if q_norm > 0:
+            q_latent /= q_norm
+
+        return q_latent.flatten().tolist()
 
     def __repr__(self) -> str:
         k = self._svd.n_components if self._svd else 0
