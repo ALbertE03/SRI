@@ -26,7 +26,7 @@ class DocumentStore:
 
     def __init__(self, data_dir: str | Path = "data") -> None:
         self.data_dir = Path(data_dir)
-        self._docs: dict[str, dict] = {}   # id → doc
+        self._docs: dict[str, dict] = {}  # id → doc
 
     def load_all(self) -> "DocumentStore":
         """Load every JSONL file found under *data_dir*."""
@@ -84,27 +84,30 @@ class DocumentStore:
         metadata    dict
         """
         url = raw.get("url", "")
-        doc_id = url if url else str(uuid.uuid5(uuid.NAMESPACE_URL, json.dumps(raw, sort_keys=True)))
+        doc_id = (
+            url
+            if url
+            else str(uuid.uuid5(uuid.NAMESPACE_URL, json.dumps(raw, sort_keys=True)))
+        )
 
         return {
-            "id":          doc_id,
-            "url":         url,
-            "title":       raw.get("title") or "",
-            "content":     raw.get("content") or "",
-            "author":      raw.get("author"),
-            "date":        raw.get("date"),
-            "scraped_at":  raw.get("scraped_at"),
-            "source":      raw.get("source", ""),
-            "tags":        raw.get("tags") or [],
-            "category":    category,
+            "id": doc_id,
+            "url": url,
+            "title": raw.get("title") or "",
+            "content": raw.get("content") or "",
+            "author": raw.get("author"),
+            "date": raw.get("date"),
+            "scraped_at": raw.get("scraped_at"),
+            "source": raw.get("source", ""),
+            "tags": raw.get("tags") or ["Unknowns"],
+            "category": category,
             "subcategory": raw.get("category") or "",
-            "brand":       raw.get("brand"),
-            "os":          raw.get("os"),
+            "brand": raw.get("brand"),
+            "os": raw.get("os"),
             "device_name": raw.get("device_name"),
             "article_type": raw.get("article_type"),
-            "metadata":    raw.get("metadata") or {},
+            # "metadata": raw.get("metadata") or {},
         }
-
 
     def get_by_id(self, doc_id: str) -> dict | None:
         """Return the document with the given *doc_id* or None."""
@@ -128,7 +131,6 @@ class DocumentStore:
     def __repr__(self) -> str:
         cats = {c: len(self.get_by_category(c)) for c in self.CATEGORIES}
         return f"DocumentStore(total={len(self)}, by_category={cats})"
-
 
     def save_snapshot(self, path: str | Path) -> None:
         """Write all documents to a single JSONL snapshot file."""

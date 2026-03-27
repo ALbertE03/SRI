@@ -2,12 +2,12 @@ import sys
 import argparse
 from pathlib import Path
 from src.indexing.indexer import InvertedIndex
-from src.retrieval.lsi_retriever import LSIRetriever
+from src.retrieval.lm_retriever import LMRetriever
 from src.retrieval.query_processor import QueryProcessor
 
 
 def build_vector_index():
-    print(f"\n[VectorIndexer] Building Vector Store (LSI)...")
+    print(f"\n[VectorIndexer] Building Vector Store (LM)...")
 
     index_path = Path("indexes/index")
     if not index_path.exists():
@@ -27,16 +27,14 @@ def build_vector_index():
 
     n_docs = idx.stats()["num_documents"]
     if n_docs < 2:
-        print(f"[VectorIndexer] Error: Not enough documents ({n_docs}) to build LSI.")
+        print(f"[VectorIndexer] Error: Not enough documents ({n_docs}) to build LM.")
         sys.exit(1)
 
-    n_components = min(200, n_docs - 1)
+    print(f"[VectorIndexer] Fitting Language Model (Query Likelihood with Dirichlet Prior)...")
+    lm = LMRetriever.from_inverted_index(idx)
 
-    print(f"[VectorIndexer] Fitting LSI with {n_components} components...")
-    lsi = LSIRetriever.from_inverted_index(idx, n_components=n_components)
-
-    output_path = Path("indexes/lsi")
-    lsi.save(output_path)
+    output_path = Path("indexes/lm")
+    lm.save(output_path)
 
     print(f"[VectorIndexer] Vector Store built and saved to {output_path}.\n")
 
@@ -44,12 +42,12 @@ def build_vector_index():
 def run_query_interface():
     print(f"\n[Search] Starting interactive search interface...")
 
-    lsi_path = Path("indexes/lsi")
-    if not (lsi_path / "lsi_model.pkl").exists():
-        print(f"[Search] Error: Vector Store not found at {lsi_path}. Run build first.")
+    lm_path = Path("indexes/lm")
+    if not (lm_path / "lm_model.pkl").exists():
+        print(f"[Search] Error: Vector Store not found at {lm_path}. Run build first.")
         return
 
-    lsi = LSIRetriever.load(lsi_path)
+    lm = LMRetriever.load(lm_path)
     qp = QueryProcessor()
 
     print(f"[Search] Model loaded. Type 'exit' to quit.\n")
@@ -64,9 +62,13 @@ def run_query_interface():
 
             # Process query
             pq = qp.process(query)
+            
+            # Apply Pseudo-Relevance Feedback via QueryProcessor
+            q_weights = pq.to_weights()
+            expanded_weights = qp.apply_prf(q_weights, lm)
 
             # Retrieve
-            results = lsi.retrieve(pq.text, top_k=5)
+            results = lm.retrieve(expanded_weights, top_k=5)
 
             print(f"\nResults for: '{pq.text}'")
             if not results:
@@ -97,7 +99,7 @@ def main():
     elif args.query:
         run_query_interface()
     else:
-        if (Path("indexes/lsi") / "vector_store.pkl").exists():
+        if (Path("indexes/lm") / "lm_model.pkl").exists():
             run_query_interface()
         else:
             build_vector_index()

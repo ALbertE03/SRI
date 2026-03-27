@@ -1,48 +1,33 @@
 from __future__ import annotations
 
 import re
+import math
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-import nltk
-from nltk.corpus import wordnet
-
-try:
-    wordnet.synsets("prueba", lang="spa")
-except LookupError:
-    nltk.download("wordnet", quiet=True)
-    nltk.download("omw-1.4", quiet=True)
-
-
-def _get_spanish_synonyms(word: str, max_synonyms: int = 5) -> list[str]:
-    """
-    Retrieve Spanish synonyms for *word* using WordNet.
-
-    Looks up synsets for the term in Spanish and collects the Spanish
-    lemmas from each synset found, excluding the original term itself.
-    """
-    synonyms: list[str] = []
-    seen: set[str] = set()
-
-    for syn in wordnet.synsets(word, lang="spa"):
-        for lemma in syn.lemmas(lang="spa"):
-            name = lemma.name().replace("_", " ").lower()
-            if name != word.lower() and name not in seen:
-                seen.add(name)
-                synonyms.append(name)
-                if len(synonyms) >= max_synonyms:
-                    return synonyms
-    return synonyms
-
+if TYPE_CHECKING:
+    from src.retrieval.lm_retriever import LMRetriever
 
 @dataclass
 class ProcessedQuery:
     """Holds a processed query ready to be sent to a retriever."""
 
     original: str
-    text: str  # expanded / normalised text
+    text: str  # text stripped of syntax
     tokens: list[str] = field(default_factory=list)
     filters: dict[str, str] = field(default_factory=dict)
     expanded: bool = False  # was synonym expansion applied?
+
+    def to_weights(self) -> dict[str, float]:
+        """Convert the processed text into normalized query weights P(w|q)."""
+        w: dict[str, float] = {}
+        for q in self.tokens:
+            w[q] = w.get(q, 0.0) + 1.0
+        tot = sum(w.values())
+        if tot > 0:
+            for k in w:
+                w[k] /= tot
+        return w
 
 
 class QueryProcessor:
@@ -55,11 +40,8 @@ class QueryProcessor:
                              (default True)
     """
 
-    def __init__(
-        self,
-        expand_synonyms: bool = True,
-    ) -> None:
-        self.expand_synonyms = expand_synonyms
+    def __init__(self) -> None:
+        pass
 
     def process(self, raw_query: str) -> ProcessedQuery:
         """
@@ -69,19 +51,12 @@ class QueryProcessor:
         -----
         1. Normalise whitespace and casing
         2. Detect explicit filters (``source:xataka``)
-        3. Optionally expand with Spanish WordNet synonyms
         """
         query = self._clean(raw_query)
         filters: dict[str, str] = {}
 
-        #   Explicit filter extraction
-        query, filters = self._extract_filters(query)
-
-        # Synonym expansion
-        expanded = False
-        text = query
-        if self.expand_synonyms:
-            text, expanded = self._expand(query)
+        # Extracts filter prefixes
+        text, filters = self._extract_filters(query)
 
         tokens = text.split()
 
@@ -90,70 +65,84 @@ class QueryProcessor:
             text=text,
             tokens=tokens,
             filters=filters,
-            expanded=expanded,
         )
 
-    @staticmethod
-    def rerank_by_date(results: list[dict], descending: bool = True) -> list[dict]:
-        """Re-rank results by publication date (most recent first by default)."""
-
-        def _date_key(r: dict) -> str:
-            return r.get("date") or ""
-
-        return sorted(results, key=_date_key, reverse=descending)
-
-    @staticmethod
-    def rerank_mmr(
-        results: list[dict],
-        top_k: int = 10,
-        diversity: float = 0.3,
-    ) -> list[dict]:
+    def apply_prf(
+        self,
+        orig_q_weights: dict[str, float],
+        retriever: "LMRetriever",
+        prf_k: int = 5,
+        prf_terms: int = 10,
+        prf_alpha: float = 0.5,
+    ) -> dict[str, float]:
         """
-        Maximal Marginal Relevance (MMR) re-ranking.
+        Calculate RM3 updated query weights using Pseudo-Relevance Feedback.
 
-        Balances relevance and diversity by penalising results that share
-        many tags or the same brand as already-selected results.
-
-        Parameters
-        ----------
-        results   : ranked list from a retriever
-        top_k     : output size
-        diversity : weight of the diversity term (0 = pure relevance)
+        Reference: Lavrenko & Croft (2001) - Relevance Based Language Models.
         """
-        if not results:
-            return []
+        if not retriever.index:
+            return orig_q_weights
 
-        selected: list[dict] = []
-        remaining: list[dict] = list(results)
+        # Initial retrieval
+        initial_results = retriever.retrieve(orig_q_weights, top_k=prf_k)
+        if not initial_results:
+            return orig_q_weights
 
-        while remaining and len(selected) < top_k:
-            if not selected:
-                # First pick: highest-ranked
-                selected.append(remaining.pop(0))
+        top_k_docs = [(r["id"], r["score"]) for r in initial_results]
+
+        # Exponentiate scores to probabilities P(d|q)
+        max_score = max(score for _, score in top_k_docs)
+        doc_probs = {
+            doc_id: math.exp(score - max_score) for doc_id, score in top_k_docs
+        }
+
+        sum_probs = sum(doc_probs.values())
+        for d in doc_probs:
+            doc_probs[d] /= sum_probs
+
+        # Compute RM1: P(w|R) = sum_{d} P(w|d) * P(d|q)
+        rm1_probs: dict[str, float] = {}
+        idx = retriever.index._index
+        doc_info = retriever.index._doc_info
+
+        for doc_id, p_d_q in doc_probs.items():
+            doc_len = doc_info[doc_id].get("length", 0)
+            if doc_len == 0:
                 continue
 
-            # Compute MMR score for each candidate
-            best_item = None
-            best_score = float("-inf")
+            # Iterate over all terms in the document to compute P(w|R)
+            for w, postings in idx.items():
+                if doc_id in postings:
+                    p_w_d = postings[doc_id] / doc_len
+                    rm1_probs[w] = rm1_probs.get(w, 0.0) + (p_w_d * p_d_q)
 
-            for idx, candidate in enumerate(remaining):
-                # Relevance proxy: inverse of position in original list
-                rel = 1.0 / (results.index(candidate) + 1)
+        rm1_sum = sum(rm1_probs.values())
+        if rm1_sum > 0:
+            for w in rm1_probs:
+                rm1_probs[w] /= rm1_sum
 
-                # Diversity: max similarity to any already-selected doc
-                sim = max(_jaccard_tags(candidate, sel) for sel in selected)
+        # Interpolate RM1 with the original query (RM3)
+        rm3_probs: dict[str, float] = {}
+        all_terms = set(orig_q_weights.keys()).union(set(rm1_probs.keys()))
 
-                mmr = (1 - diversity) * rel - diversity * sim
-                if mmr > best_score:
-                    best_score = mmr
-                    best_item = (idx, candidate)
+        for w in all_terms:
+            p_orig = orig_q_weights.get(w, 0.0)
+            p_rm1 = rm1_probs.get(w, 0.0)
+            rm3_probs[w] = (prf_alpha * p_orig) + ((1.0 - prf_alpha) * p_rm1)
 
-            if best_item is None:
-                break
-            idx, item = best_item
-            selected.append(remaining.pop(idx))
+        #  Select top `prf_terms` from RM3
+        top_terms = sorted(rm3_probs.items(), key=lambda x: x[1], reverse=True)[
+            :prf_terms
+        ]
 
-        return selected
+        # Re-normalize just the top terms
+        final_weights = {}
+        sum_top = sum(weight for _, weight in top_terms)
+        if sum_top > 0:
+            for w, weight in top_terms:
+                final_weights[w] = weight / sum_top
+
+        return final_weights
 
     @staticmethod
     def _clean(text: str) -> str:
@@ -180,37 +169,3 @@ class QueryProcessor:
                 clean_parts.append(token)
 
         return " ".join(clean_parts).strip(), filters
-
-    @staticmethod
-    def _expand(query: str) -> tuple[str, bool]:
-        """
-        Expand *query* by appending Spanish synonyms obtained
-        dynamically from WordNet.
-        """
-        tokens = query.split()
-        additions: list[str] = []
-        expanded = False
-
-        for token in tokens:
-            syns = _get_spanish_synonyms(token)
-            for s in syns:
-                if s not in query and s not in additions:
-                    additions.append(s)
-                    expanded = True
-
-        if additions:
-            return query + " " + " ".join(additions), expanded
-        return query, False
-
-
-def _jaccard_tags(a: dict, b: dict) -> float:
-    """Jaccard similarity between the tag sets of two documents."""
-    ta = set(a.get("tags", []) or [])
-    tb = set(b.get("tags", []) or [])
-    if not ta and not tb:
-        # Fall back to brand similarity
-        return 1.0 if a.get("brand") == b.get("brand") and a.get("brand") else 0.0
-    union = ta | tb
-    if not union:
-        return 0.0
-    return len(ta & tb) / len(union)

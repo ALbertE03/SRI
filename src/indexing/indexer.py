@@ -7,6 +7,10 @@ from collections import Counter, defaultdict
 from pathlib import Path
 import nltk
 
+from nltk.corpus import stopwords
+from nltk.stem import SnowballStemmer
+from nltk.tokenize import word_tokenize
+
 
 def _ensure_nltk() -> None:
     """Ensure required NLTK data is available"""
@@ -23,13 +27,7 @@ def _ensure_nltk() -> None:
 
 _ensure_nltk()
 
-from nltk.corpus import stopwords
-from nltk.stem import SnowballStemmer
-from nltk.tokenize import word_tokenize
-
-
 # Stop-words: Spanish
-
 _STOP_WORDS: frozenset[str] = frozenset(stopwords.words("spanish"))
 
 
@@ -72,7 +70,7 @@ class TextNormalizer:
         return tokens
 
     def normalize_query(self, query: str) -> list[str]:
-        """Normalise a user query (same pipeline as document tokens)."""
+        """Normalise a user query."""
         return self.normalize(query)
 
 

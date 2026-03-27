@@ -2,11 +2,11 @@
 Vector database module.
 
 Provides:
-    - LSIEmbeddings : LangChain-compatible embeddings using the LSI pipeline
+    - BasicEmbeddings : LangChain-compatible embeddings using basic TF-IDF
     - VectorStore   : in-memory vector database with cosine-similarity search
 """
 
-from .embeddings import LSIEmbeddings
+from .embeddings import BasicEmbeddings
 from .vector_store import VectorStore
 
-__all__ = ["LSIEmbeddings", "VectorStore"]
+__all__ = ["BasicEmbeddings", "VectorStore"]

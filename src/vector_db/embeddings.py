@@ -1,24 +1,21 @@
 from __future__ import annotations
 
-import math
-from collections import Counter
+import pickle
+from typing import Any
 
 import numpy as np
 from langchain_core.embeddings import Embeddings
-from sklearn.decomposition import TruncatedSVD
-from sklearn.preprocessing import normalize
+from sklearn.feature_extraction.text import TfidfVectorizer
 
-from src.indexing.indexer import TextNormalizer
+from src.indexing.indexer import InvertedIndex, TextNormalizer
 
 
-class LSIEmbeddings(Embeddings):
+class BasicEmbeddings(Embeddings):
     """
-    LangChain embedding model using LSI.
+    LangChain embedding model using basic TF-IDF vectors.
 
     Parameters
     ----------
-    n_components : int
-        Dimensionality of the output latent space.
     normalizer : TextNormalizer | None
         Shared text normaliser.
     max_features : int
@@ -27,183 +24,92 @@ class LSIEmbeddings(Embeddings):
 
     def __init__(
         self,
-        n_components: int = 200,
         normalizer: TextNormalizer | None = None,
         max_features: int = 15_000,
     ) -> None:
-        self.n_components = n_components
         self.normalizer = normalizer or TextNormalizer()
         self.max_features = max_features
 
-        # Fitted state
-        self._svd: TruncatedSVD | None = None
-        self._vocab: dict[str, int] = {}  # term -> column index
+        self._vectorizer = TfidfVectorizer(
+            tokenizer=self.normalizer.normalize,
+            max_features=self.max_features,
+            token_pattern=None,
+            lowercase=False,
+        )
         self._fitted = False
 
-    def fit(self, documents: list[dict]) -> "LSIEmbeddings":
-        """Fit the LSI model from a list of document dicts."""
+    def fit(self, documents: list[dict]) -> "BasicEmbeddings":
+        """Fit the TF-IDF model from a list of document dicts."""
         if not documents:
             raise ValueError("Empty document list.")
 
-        # Collect tokens and build vocabulary by frequency
-        token_lists = []
-        df_counts: dict[str, int] = {}
+        texts = []
         for doc in documents:
             text = f"{doc.get('title', '')} {doc.get('content', '')}"
-            tokens = self.normalizer.normalize(text)
-            token_lists.append(tokens)
-            for t in set(tokens):
-                df_counts[t] = df_counts.get(t, 0) + 1
+            texts.append(text)
 
-        sorted_terms = sorted(
-            df_counts.keys(), key=lambda t: df_counts[t], reverse=True
-        )
-        vocab_terms = sorted_terms[: self.max_features]
-        self._vocab = {term: i for i, term in enumerate(vocab_terms)}
-        V = len(self._vocab)
-        N = len(token_lists)
+        self._vectorizer.fit(texts)
+        self._fitted = True
 
-        # 2. Build Term-Document Matrix with Log-TF weighting
-        # A[i, j] = log(1 + tf_ij)
-        matrix = np.zeros((N, V), dtype=np.float32)
-        for row, tokens in enumerate(token_lists):
-            counts = Counter(tokens)
-            for term, count in counts.items():
-                col = self._vocab.get(term)
-                if col is not None:
-                    matrix[row, col] = math.log1p(count)
-
-        # 3. Apply SVD
-        self._fit_svd(matrix)
+        v = len(self._vectorizer.vocabulary_)
+        print(f"[BasicEmbeddings] TF-IDF Fitted: {len(documents)} docs | {v} terms")
         return self
 
     def fit_from_index(self, index: "InvertedIndex") -> np.ndarray:
         """
-        Fits LSI from an InvertedIndex and returns document vectors.
-        Supported by Deerwester et al. (1990) using log-weighting.
+        Build basic TF-IDF embeddings from the raw document texts.
         """
-        # Build vocabulary sorted by document frequency (highest first)
-        df_counts = {term: len(postings) for term, postings in index._index.items()}
-        sorted_terms = sorted(
-            df_counts.keys(), key=lambda t: df_counts[t], reverse=True
-        )
-        vocab_terms = sorted_terms[: self.max_features]
-        self._vocab = {term: i for i, term in enumerate(vocab_terms)}
-
-        V = len(self._vocab)
-        N = len(index._doc_info)
         doc_ids = list(index._doc_info.keys())
-        doc_id_to_row = {doc_id: i for i, doc_id in enumerate(doc_ids)}
+        doc_texts = []
 
-        # Build log-TF matrix
-        matrix = np.zeros((N, V), dtype=np.float32)
-        for term, postings in index._index.items():
-            col = self._vocab.get(term)
-            if col is None:
-                continue
-            for doc_id, count in postings.items():
-                row = doc_id_to_row.get(doc_id)
-                if row is not None:
-                    matrix[row, col] = math.log1p(count)
+        for doc_id in doc_ids:
+            # Reconstruct bag of words as a string
+            words = []
+            for term, postings in index._index.items():
+                if doc_id in postings:
+                    words.extend([term] * postings[doc_id])
+            doc_texts.append(" ".join(words))
 
-        self._fit_svd(matrix)
-
-        return self.transform_matrix(matrix)
-
-    def _fit_svd(self, matrix: np.ndarray) -> None:
-        """Helper to fit SVD on a weighted term-document matrix."""
-        N, V = matrix.shape
-        k = min(self.n_components, N - 1, V - 1)
-        if k < 1:
-            raise ValueError(f"Too few docs ({N}) or terms ({V}) for LSI.")
-
-        # L2-normalize documents before SVD (optional but common for better results)
-        matrix = normalize(matrix, norm="l2")
-
-        self._svd = TruncatedSVD(
-            n_components=k,
-            algorithm="randomized",
-            n_iter=7,
-            random_state=42,
-        )
-        self._svd.fit(matrix)
+        self._vectorizer.fit(doc_texts)
         self._fitted = True
 
-        ev = self._svd.explained_variance_ratio_.sum()
+        v = len(self._vectorizer.vocabulary_)
         print(
-            f"[LSIEmbeddings] Classic LSI Fitted: {N} docs | {V} terms | "
-            f"{k} dims | explained variance: {ev:.3f}"
+            f"[BasicEmbeddings] TF-IDF Reconstructed Fitted: {len(doc_ids)} docs | {v} terms"
         )
 
-    def transform_matrix(self, matrix: np.ndarray) -> np.ndarray:
-        """
-        Project a pre-built Log-TF matrix into the latent space.
-
-        Following Barbara Rosario (2000): q_hat = q^T * T * S^-1
-        """
-        if not self._fitted or self._svd is None:
-            raise RuntimeError("Not fitted.")
-
-        #  Normalise input rows (documents)
-        matrix = normalize(matrix, norm="l2")
-
-        # Project to latent space: raw_latent = matrix * V
-        # self._svd.transform(matrix) returns matrix * V
-        latent = self._svd.transform(matrix)
-
-        # Scale by inverse of singular values (S^-1)
-        # This is the "folding-in" step described in the paper.
-        latent = latent / self._svd.singular_values_
-
-        # Final L2-normalisation of the reduced vectors
-        return normalize(latent, norm="l2").astype(np.float32)
+        return self._vectorizer.transform(doc_texts).toarray().astype(np.float32)
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        """Embed document texts."""
-        vectors = []
-        for text in texts:
-            vectors.append(self.embed_query(text))
-        return vectors
-
-    def embed_query(self, text: str) -> list[float]:
-        """
-        Embed a single text using the LSI projection.
-        Formula: q_hat = q^T * T * S^-1
-        """
-        if not self._fitted or self._svd is None:
+        """Embed document texts into TF-IDF vectors."""
+        if not self._fitted:
             raise RuntimeError("Not fitted.")
 
-        tokens = self.normalizer.normalize(text)
-        V = len(self._vocab)
-        if not tokens:
-            return [0.0] * self._svd.n_components
+        matrix = self._vectorizer.transform(texts)
+        # Convert sparse to dense list of lists
+        return matrix.toarray().astype(np.float32).tolist()
 
-        # Create log-TF vector (q)
-        counts = Counter(tokens)
-        vec = np.zeros(V, dtype=np.float32)
-        for term, count in counts.items():
-            if term in self._vocab:
-                vec[self._vocab[term]] = math.log1p(count)
+    def embed_query(self, text: str) -> list[float]:
+        """Embed a single query into a TF-IDF vector."""
+        if not self._fitted:
+            raise RuntimeError("Not fitted.")
 
-        #  L2-normalize query term vector
-        norm = float(np.linalg.norm(vec))
-        if norm > 0:
-            vec /= norm
+        vector = self._vectorizer.transform([text])
+        return vector.toarray().astype(np.float32).flatten().tolist()
 
-        # Project: q * T
-        # svd.transform returns X * V
-        q_latent = self._svd.transform(vec.reshape(1, -1))
+    def __getstate__(self) -> dict[str, Any]:
+        """Custom pickling to handle the vectorizer cleanly."""
+        state = self.__dict__.copy()
+        return state
 
-        #  Scale by S^-1 (Singular Value scaling from paper)
-        q_latent = q_latent / self._svd.singular_values_
-
-        #  Final L2-normalization for cosine similarity
-        q_norm = float(np.linalg.norm(q_latent))
-        if q_norm > 0:
-            q_latent /= q_norm
-
-        return q_latent.flatten().tolist()
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Custom unpickling."""
+        self.__dict__.update(state)
 
     def __repr__(self) -> str:
-        k = self._svd.n_components if self._svd else 0
-        return f"LSIEmbeddings(dims={k}, vocab={len(self._vocab)}, classic=True)"
+        vocab_size = (
+            len(self._vectorizer.vocabulary_)
+            if hasattr(self._vectorizer, "vocabulary_")
+            else 0
+        )
+        return f"BasicEmbeddings(max_features={self.max_features}, vocab_size={vocab_size})"

@@ -9,7 +9,7 @@ from chromadb.config import Settings
 import numpy as np
 
 if TYPE_CHECKING:
-    from src.vector_db.embeddings import LSIEmbeddings
+    from src.vector_db.embeddings import BasicEmbeddings
 
 
 class VectorStore:
@@ -18,13 +18,13 @@ class VectorStore:
 
     Parameters
     ----------
-    embeddings : LSIEmbeddings | None
+    embeddings : BasicEmbeddings | None
         An optional embedding model used for query transformation during search.
     """
 
     COLLECTION_NAME = "sri_documents"
 
-    def __init__(self, embeddings: LSIEmbeddings | None = None) -> None:
+    def __init__(self, embeddings: BasicEmbeddings | None = None) -> None:
         self._embeddings = embeddings
 
         # Connect to Chroma
@@ -58,7 +58,6 @@ class VectorStore:
 
         # metadatas is a list of dicts corresponding to ids
         metadatas = [doc_info[did] for did in doc_ids]
-
         # Batch add/upsert
         print(f"[VectorStore] Upserting {len(doc_ids)} documents to Chroma...")
         self._collection.upsert(
@@ -72,7 +71,6 @@ class VectorStore:
         """
         Rank documents by similarity using Chroma.
         """
-        # Convert query to vector if it's a string
         if isinstance(query, str):
             if self._embeddings is None:
                 raise RuntimeError("Need embeddings model to search raw strings.")
@@ -144,10 +142,9 @@ class VectorStore:
 
     @classmethod
     def load(
-        cls, directory: str | Path, embeddings: LSIEmbeddings | None = None
+        cls, directory: str | Path, embeddings: BasicEmbeddings | None = None
     ) -> "VectorStore":
         """Load the store."""
-        # Note: directory argument is ignored if using local persistent path in __init__
         return cls(embeddings=embeddings)
 
     def stats(self) -> dict:

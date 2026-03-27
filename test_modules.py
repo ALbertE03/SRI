@@ -1,8 +1,8 @@
 from src.indexing.storage import DocumentStore
 from src.indexing.indexer import InvertedIndex, TextNormalizer
-from src.retrieval.lsi_retriever import LSIRetriever
+from src.retrieval.lm_retriever import LMRetriever
 from src.retrieval.query_processor import QueryProcessor
-from src.vector_db import LSIEmbeddings, VectorStore
+from src.vector_db import BasicEmbeddings, VectorStore
 import numpy as np
 
 SEP = "=" * 60
@@ -40,7 +40,7 @@ mobile_docs = store.get_by_category("mobile")
 print(f"\n  get_by_category('mobile') → {len(mobile_docs)} docs")
 
 # ─────────────────────────────────────────────────────────────────────
-# 2. TextNormalizer
+#  TextNormalizer
 # ─────────────────────────────────────────────────────────────────────
 print(f"\n{SEP}")
 print("  MODULE: src.indexing.indexer  →  TextNormalizer")
@@ -53,7 +53,6 @@ print(f"  Input : {raw}")
 print(f"  Tokens: {tokens}")
 
 # ─────────────────────────────────────────────────────────────────────
-# 3. InvertedIndex — base de datos estructural para LSI
 # ─────────────────────────────────────────────────────────────────
 print(f"\n{SEP}")
 print("  MODULE: src.indexing.indexer  →  InvertedIndex")
@@ -65,18 +64,17 @@ print(f"  {idx}")
 idx.save("indexes/index")
 
 # ─────────────────────────────────────────────────────────────────────
-# 4. LSI Retriever + QueryProcessor (pipeline completo)
+#  LM Retriever + QueryProcessor (pipeline completo)
 # ─────────────────────────────────────────────────────────────────────
 print(f"\n{SEP}")
-print("  PIPELINE: QueryProcessor → LSIRetriever")
+print("  PIPELINE: QueryProcessor → LMRetriever")
 print(SEP)
 
-# Construir LSI reutilizando el índice invertido
-n_components = min(20, len(docs) - 1)  # safe for small corpus
-lsi = LSIRetriever.from_inverted_index(idx, n_components=n_components)
-print(f"  {lsi}")
-print(f"  Stats: {lsi.stats()}")
-lsi.save("indexes/lsi")
+# Construir LM reutilizando el índice invertido
+lm = LMRetriever.from_inverted_index(idx)
+print(f"  {lm}")
+print(f"  Stats: {lm.stats()}")
+lm.save("indexes/lm")
 
 qp = QueryProcessor()
 
@@ -88,31 +86,35 @@ pipeline_queries = [
 ]
 
 for raw_q in pipeline_queries:
-    # 1. QueryProcessor: normaliza y expande sinónimos via WordNet
+    #  QueryProcessor: normaliza y expande sinónimos via WordNet
     pq = qp.process(raw_q)
     print(f"\n  Query original : '{pq.original}'")
     print(f"  Query expandida: '{pq.text}'")
-    # 2. LSIRetriever: busca con la query expandida
-    results = lsi.retrieve(pq.text, top_k=3)
+    #  LMRetriever: busca con la query expandida
+    # Usando Pseudo-Relevance Feedback (RM3) definido en QueryProcessor
+    q_weights = pq.to_weights()
+    expanded_weights = qp.apply_prf(q_weights, lm)
+
+    results = lm.retrieve(expanded_weights, top_k=3)
     print(f"  Resultados ({len(results)}):")
     for r in results:
         print(f"    [{r['score']:.4f}] {r['title'][:60]}")
 
 # Round-trip desde disco
-lsi2 = LSIRetriever.load("indexes/lsi")
+lm2 = LMRetriever.load("indexes/lm")
 pq2 = qp.process("Apple iOS chip")
-rt = lsi2.retrieve(pq2.text, top_k=2)
-print(f"\n  Round-trip load OK: {lsi2}")
+rt = lm2.retrieve(pq2.text, top_k=2)
+print(f"\n  Round-trip load OK: {lm2}")
 
 # ─────────────────────────────────────────────────────────────────────
-# 5. VectorStore + LSIEmbeddings (base de datos vectorial)
+# VectorStore + BasicEmbeddings (base de datos vectorial)
 # ─────────────────────────────────────────────────────────────────────
 print(f"\n{SEP}")
-print("  MODULE: src.vector_db  →  LSIEmbeddings + VectorStore")
+print("  MODULE: src.vector_db  →  BasicEmbeddings + VectorStore")
 print(SEP)
 
 # Fit embeddings on the same documents
-emb = LSIEmbeddings(n_components=n_components, normalizer=norm)
+emb = BasicEmbeddings(normalizer=norm)
 emb.fit(docs)
 print(f"  {emb}")
 
@@ -126,10 +128,10 @@ for d in docs:
     doc_info[did] = d
     texts.append(f"{d.get('title','')} {d.get('content','')}")
 
-# 1. Transform text to vectors via Embeddings
+# Transform text to vectors via Embeddings
 vectors = np.array(emb.embed_documents(texts))
 
-# 2. Setup VectorStore with pre-computed vectors
+# Setup VectorStore with pre-computed vectors
 vs = VectorStore(embeddings=emb)
 vs.setup(doc_ids, vectors, doc_info)
 print(f"  {vs}")
