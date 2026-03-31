@@ -1,7 +1,7 @@
-# SRI — Sistema de Recuperación de Información
+# SRI — Sistema de Recuperación de Información de Noticias
 
-Motor de búsqueda sobre noticias tecnológicas de [Xataka](https://www.xataka.com/) (móvil y PC).  
-El sistema extrae artículos mediante web scraping, los indexa con un índice invertido + LSI y permite realizar consultas en lenguaje natural.
+Motor de búsqueda sobre noticias tecnológicas de [Xataka](https://www.xataka.com/) (categorías móvil y PC).  
+El sistema utiliza el modelo **Modelo Probabilístico de Lenguaje (Query Likelihood)** con **Suavizado de Dirichlet**, incorporando además **Pseudo-Relevance Feedback (RM3)** para expansión de consultas y **Chroma DB** como base de datos de vectores.
 
 ---
 
@@ -12,7 +12,7 @@ El sistema extrae artículos mediante web scraping, los indexa con un índice in
 | Docker      | 24+            |
 | Docker Compose | v2 (`docker compose`) |
 
-No es necesario instalar Python ni ninguna dependencia en el host; todo corre dentro del contenedor.
+No es necesario instalar Python ni ninguna dependencia en el host; el entorno está completamente contenedorizado, utilizando `uv` para la gestión de paquetes.
 
 ---
 
@@ -20,16 +20,18 @@ No es necesario instalar Python ni ninguna dependencia en el host; todo corre de
 
 ```
 .
-├── data/           # Artículos scrapeados (.jsonl), generados por los spiders
-│   ├── mobile/
-│   └── pc/
-├── indexes/        # Índice invertido y modelo LSI persistidos
-├── logs/           # Logs de ejecución de los spiders
+├── data/               # Artículos scrapeados (.jsonl), generados por los spiders
+├── indexes/            # Índice invertido, modelo LM y persistencia de Chroma
+│   ├── index/          # Inverted Index (pickle)
+│   ├── lm/             # Modelo LM + estadísticas de colección
+│   └── chroma/         # Datos persistentes de Chroma DB
+├── logs/               # Logs de ejecución de los spiders
 ├── src/
 │   ├── extract_data/   # Spiders de Scrapy + pipelines
-│   ├── indexing/       # Construcción del índice invertido
-│   └── retrieval/      # Retriever LSI + procesador de consultas
-├── main.py             # CLI de consulta interactiva
+│   ├── indexing/       # Construcción del índice invertido y almacenamiento
+│   ├── retrieval/      # LM Retriever (Dirichlet) + RM3 (Query Processor)
+│   └── vector_db/      # Integración con Chroma DB + Embeddings (TF-IDF)
+├── main.py             # CLI principal (build & query)
 ├── docker-compose.yml
 └── dockerfile
 ```
@@ -44,13 +46,6 @@ No es necesario instalar Python ni ninguna dependencia en el host; todo corre de
 docker compose build
 ```
 
-Solo es necesario la primera vez, o cuando se modifique el código o las dependencias.  
-Para forzar una reconstrucción limpia:
-
-```bash
-docker compose build --no-cache
-```
-
 ---
 
 ### 2. Ejecutar los spiders (scraping)
@@ -59,67 +54,62 @@ docker compose build --no-cache
 docker compose run --rm crawl
 ```
 
-Lanza en paralelo los dos spiders:
-
-- `xataka_mobile` → guarda en `data/mobile/`
-- `xataka_pc` → guarda en `data/pc/`
-
-Los logs se escriben en `logs/xataka_mobile.log` y `logs/xataka_pc.log`.  
-El proceso puede tardar varios minutos según el volumen de páginas. El timeout máximo es de **1 hora** por spider.
-
-> Los datos y logs se persisten en el host gracias a los volúmenes de Docker.
+Extrae artículos de *Xataka Móvil* y *Xataka PC* en paralelo, guardándolos en `data/`. Los logs se escriben en `logs/`.
 
 ---
 
-### 3. Construir el índice
+### 3. Construir el índice invertido
 
 ```bash
 docker compose run --rm index
 ```
 
-Lee los `.jsonl` de `data/`, construye el índice invertido y el modelo LSI, y los guarda en `indexes/`.
-
-> Este paso requiere que el scraping (paso 2) haya finalizado y existan archivos en `data/`.
+Lee los `.jsonl` de `data/`, construye el índice invertido (TF, metadata, vocabulario) y lo guarda en `indexes/index/`.
 
 ---
 
-### 4. Realizar consultas
+### 4. Construir el Modelo de Lenguaje y Vector Store
+
+```bash
+docker compose run --rm vector-index
+```
+
+Este comando realiza dos acciones clave:
+1.  **Entrenar el LM**: Ajusta un modelo de lenguaje con **Suavizado de Dirichlet** (μ=2000) a partir del índice.
+2.  **Inicializar Chroma**: Popula la base de datos **Chroma DB** con vectores TF-IDF generados a partir del contenido de los documentos.
+
+---
+
+### 5. Realizar consultas interactivas
 
 ```bash
 docker compose run --rm -it query
 ```
 
-Abre una sesión interactiva desde la que se pueden introducir consultas en lenguaje natural.  
-El sistema devuelve los artículos más relevantes según el modelo LSI.
-
-> El flag `-it` es necesario para que la terminal interactiva funcione correctamente.
+Inicia la interfaz de búsqueda interactiva. El proceso de recuperación incluye:
+1.  **Procesamiento de Consulta**: Normalización y extracción de tokens.
+2.  **RM3 (Pseudo-Relevance Feedback)**: Expansión automática de la consulta basada en los 5 documentos principales (α=0.5).
+3.  **Ranking Probabilístico**: Clasificación de documentos según la probabilidad de que el documento haya generado la consulta expandida.
 
 ---
 
-## Flujo completo (de inicio a fin)
+## Flujo completo (One-linear)
+
+Puedes ejecutar todo el pipeline de inicio a fin con:
 
 ```bash
-# 1. Construir imagen
-docker compose build
-
-# 2. Scrapear artículos
-docker compose run --rm crawl
-
-# 3. Indexar
-docker compose run --rm index
-
-# 4. Consultar
+docker compose build && \
+docker compose run --rm crawl && \
+docker compose run --rm index && \
+docker compose run --rm vector-index && \
 docker compose run --rm -it query
 ```
 
 ---
 
-## Notas
+## Detalles Técnicos
 
-- Los datos ya scrapeados en `data/` y los índices en `indexes/` persisten entre ejecuciones. No es necesario volver a scrapear si los datos son recientes.
-- El caché HTTP de Scrapy se almacena en `httpcache/` y tiene una validez de **24 horas**, lo que acelera las re-ejecuciones.
-- Para correr solo un spider concreto:
-
-```bash
-docker compose run --rm crawl /bin/sh -c "uv run scrapy crawl xataka_mobile"
-```
+- **Suavizado de Dirichlet**: Se utiliza para manejar términos ausentes en documentos individuales pero presentes en la colección total. Parámetro por defecto **μ=2000**.
+- **RM3 (RM1 Interpolado)**: Mejora la relevancia al expandir la consulta original con términos provenientes de los documentos recuperados inicialmente. Combina la consulta original (α=0.5) con el modelo de relevancia (1-α=0.5).
+- **Chroma DB**: Utilizado para almacenamiento eficiente y búsqueda por similitud de coseno sobre representaciones vectoriales.
+- **Normalización**: Uso de NLTK para tokenización en español, eliminación de stop-words y limpieza de caracteres no alfanuméricos.
