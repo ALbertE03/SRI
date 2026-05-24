@@ -23,7 +23,7 @@ class WebSearcher:
     """
     def __init__(self, max_results: int | None = None, normalizer: TextNormalizer | None = None, engine: str | None = None):
         raw = (engine or WEB_SEARCH_ENGINE).lower()
-        if raw == "all":
+        if raw.lower() == "all":
             self.engines = ["duckduckgo", "yandex", "brave","google","bing"]
         else:
             self.engines = [e.strip() for e in raw.replace(",", " ").split()]

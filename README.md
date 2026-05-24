@@ -1,196 +1,256 @@
 # SRI RAG System
 
-Spanish Information Retrieval system using RAG (Retrieval-Augmented Generation) with hybrid search (LM + Vector) and automatic web search fallback.
+Sistema de Recuperacion de Informacion en espanol con RAG, busqueda hibrida LM + vectorial, busqueda web como fallback y retroalimentacion Rocchio desde la UI.
 
 ## Requisitos
 
-- Python 3.10+
-- Node.js 18+ (para UI)
+- Python >=3.12 y <3.14
+- Node.js 18+
 - uv
-- 4GB+ RAM mínimo (8GB+ recomendado)
-- 20GB+ espacio libre en disco para el modelo y los contenedores
+- pnpm
+- 4GB+ RAM minimo (8GB+ recomendado)
+- 20GB+ libres para modelos, indices y contenedores
 
-## Instalación
+## Instalacion
 
 ```bash
-# Instalar dependencias Python
 uv sync
-
-# Instalar dependencias UI (opcional)
 cd ui && pnpm install && cd ..
 ```
 
-## Ejecución
+## Ejecucion
 
-### Servidor API
+### API
 
 ```bash
-# Terminal 1: Iniciar API
-uv run api.py
+uv run python api.py
 ```
 
-La API estará disponible en:
+La API queda disponible en:
 
 - API: <http://localhost:8000>
-- Documentación: <http://localhost:8000/docs>
-- Health Check: <http://localhost:8000/health>
+- Swagger UI: <http://localhost:8000/docs>
+- ReDoc: <http://localhost:8000/redoc>
+- OpenAPI JSON: <http://localhost:8000/openapi.json>
 
-### Interfaz Web
+### UI
 
 ```bash
-# Terminal 2: Iniciar UI
-cd ui && npm run dev
+cd ui && pnpm dev
 ```
 
-La UI estará disponible en: <http://localhost:5173>
+La UI de desarrollo queda disponible en <http://localhost:5173>. Vite proxya `/api` hacia `http://localhost:8000`.
+
+### Docker Compose
+
+```bash
+docker compose up --build
+```
+
+El servicio `api` escucha en el puerto `8000` y el servicio `ui` en el puerto `5173`.
 
 ## Variables de Entorno
 
-Copia `.env.example` a `.env` y ajusta los valores según necesidad.
+Crea un `.env` solo con los valores que necesites sobreescribir. Estas son las variables usadas por la API/RAG; la mayoria se leen desde `src/config.py`.
 
-### Configuración del Modelo
+### Modelo
 
-| Variable | Descripción | Por Defecto |
+| Variable | Descripcion | Por defecto |
 |----------|-------------|-------------|
-| `MODEL_PATH` | nombre del modelo en huggingface (vacío = descargar modelo por defecto) | "" |
-| `MODEL_TEMPERATURE` | Temperatura de muestreo LLM | 0.3 |
-| `MODEL_MAX_TOKENS` | Máximo de tokens a generar | 2048 |
-| `MODEL_N_CTX` | Tamaño de ventana de contexto | 2048 |
-| `MODEL_N_THREADS` | Hilos CPU (vacío = auto-detectar) | auto |
-| `MODEL_VERBOSE` | Salida verbose del LLM | false |
-| `GGML_BACKEND` | Backend (cpu/cuda/metal) | cpu |
+| `MODEL_PATH` | Ruta local a un `.gguf` o repo de HuggingFace. Vacio descarga el modelo por defecto. | `""` |
+| `MODEL_TEMPERATURE` | Temperatura de muestreo del LLM. | `0.3` |
+| `MODEL_MAX_TOKENS` | Maximo de tokens generados. | `2048` |
+| `MODEL_N_CTX` | Tamano de ventana de contexto. | `2048` |
+| `MODEL_VERBOSE` | Logs verbose de `llama-cpp`. | `false` |
+| `GGML_BACKEND` | Backend para cargar embeddings: `cpu`, `cuda` o `metal`. | `cpu` |
 
-### Configuración RAG
+### RAG
 
-| Variable | Descripción | Por Defecto |
+| Variable | Descripcion | Por defecto |
 |----------|-------------|-------------|
-| `RAG_RELEVANCE_THRESHOLD` | Umbral para activar búsqueda web (0.0-1.0) | 0.4 |
-| `RAG_ENABLE_QUERY_EXPANSION` | Habilitar expansión de query por coocurrencia | true |
-| `RAG_QUERY_EXPANSION_TERMS` | Número de términos para expansión | 10 |
-| `RAG_COOCCURRENCE_WINDOW` | Ventana espacial para matriz de coocurrencia | 1 |
-| `RAG_LM_RETRIEVER_WEIGHT` | Peso del retriever LM (0.0-1.0) | 0.5 |
-| `RAG_VECTOR_RETRIEVER_WEIGHT` | Peso del retriever vector (0.0-1.0) | 0.5 |
-| `RAG_RETRIEVER_K` | Número de documentos a recuperar | 3 |
-| `RAG_MAX_DOC_CHARS` | Máximo caracteres por documento | 300 |
+| `RAG_RELEVANCE_THRESHOLD` | Umbral para activar busqueda web si la relevancia local es baja. | `0.6` |
+| `RAG_ENABLE_QUERY_EXPANSION` | Habilita expansion de consulta por coocurrencia. | `true` |
+| `RAG_QUERY_EXPANSION_TERMS` | Numero de terminos agregados por expansion. | `10` |
+| `RAG_COOCCURRENCE_WINDOW` | Ventana para matriz de coocurrencia. | `1` |
+| `RAG_LM_RETRIEVER_WEIGHT` | Peso del retriever LM en el ensemble. | `0.5` |
+| `RAG_VECTOR_RETRIEVER_WEIGHT` | Peso del retriever vectorial en el ensemble. | `0.5` |
+| `RAG_RETRIEVER_K` | Numero de documentos a recuperar por defecto. | `10` |
 
-### Configuración del Ranker
+### Indexacion y Vector DB
 
-| Variable | Descripción | Por Defecto |
+| Variable | Descripcion | Por defecto |
 |----------|-------------|-------------|
-| `RANKER_RELEVANCE_WEIGHT` | Peso de relevancia en ranking (0.0-1.0) | 0.5 |
-| `RANKER_POPULARITY_WEIGHT` | Peso de popularidad (0.0-1.0) | 0.15 |
-| `RANKER_FRESHNESS_WEIGHT` | Peso de frescura (0.0-1.0) | 0.2 |
-| `RANKER_COMPLETENESS_WEIGHT` | Peso de completitud (0.0-1.0) | 0.1 |
-| `RANKER_SOURCE_QUALITY_WEIGHT` | Peso de calidad de fuente (0.0-1.0) | 0.05 |
-| `RANKER_TRUSTED_DOMAINS` | Dominios trustados separados por coma | wikipedia.org,stackoverflow.com,github.com,mdn.io,docs.python.org,xataka.com |
+| `VECTOR_DB_COLLECTION_NAME` | Nombre de la coleccion Chroma. | `sri_documents_transformer` |
+| `VECTOR_DB_TOP_K` | Numero de resultados en busqueda vectorial directa. | `10` |
+| `BATCH_SIZE` | Tamano de lote al poblar Chroma. | `1000` |
+| `RESET` | Borra y recrea la coleccion vectorial al indexar. | `false` |
+| `FORCE` | Fuerza reconstruccion de componentes al iniciar la API. | `false` |
+| `CHUNK_SIZE` | Tamano objetivo de chunk. | `3500` |
+| `CHUNK_OVERLAP` | Solapamiento entre chunks. | `100` |
+| `STRATEGY` | Estrategia de chunking. | `sliding` |
+| `MIN_CHUNK_SIZE` | Tamano minimo de chunk. | `100` |
+| `INDEX_LANGUAGE` | Idioma del normalizador. | `spanish` |
+| `MU` | Parametro de suavizado del retriever LM. | `2000.0` |
+| `MAX_FEATURES` | Maximo de features para fallback TF-IDF. | `15000` |
 
-### Configuración Vector DB
+### Busqueda Web, API y Feedback
 
-| Variable | Descripción | Por Defecto |
+| Variable | Descripcion | Por defecto |
 |----------|-------------|-------------|
-| `VECTOR_DB_COLLECTION_NAME` | Nombre de colección Chroma | sri_documents_transformer |
-| `VECTOR_DB_PERSIST_DIR` | Directorio de persistencia | indexes/chroma_langchain |
-| `VECTOR_DB_TOP_K` | Número de resultados para búsqueda vectorial | 10 |
+| `WEB_SEARCH_ENGINE` | Motores de busqueda: `all`, `duckduckgo`, `yandex`, `brave`, `google`, `bing` o lista separada por coma/espacio. | `all` |
+| `WEB_SEARCH_MAX_RESULTS` | Maximo de resultados por busqueda web. | `3` |
+| `WEB_SEARCH_REGION` | Region para DuckDuckGo. | `es-es` |
+| `WEB_SEARCH_TIME` | Filtro temporal para DuckDuckGo. | `y` |
+| `DEFAULT_TIMEOUT` | Timeout HTTP para extraer contenido web. | `15` |
+| `API_HOST` | Host del servidor FastAPI. | `0.0.0.0` |
+| `API_PORT` | Puerto del servidor FastAPI. | `8000` |
+| `ALPHA` | Peso de la consulta original en Rocchio. | `1.0` |
+| `BETA` | Peso de documentos relevantes en Rocchio. | `0.75` |
+| `GAMMA` | Peso de documentos no relevantes en Rocchio. | `0.15` |
 
-### Configuración Web Search
+### UI
 
-| Variable | Descripción | Por Defecto |
+Estas variables se leen desde `ui/vite.config.js` durante desarrollo.
+
+| Variable | Descripcion | Por defecto |
 |----------|-------------|-------------|
-| `WEB_SEARCH_ENGINE` | Motor de búsqueda (duckduckgo, yandex, brave) | duckduckgo |
-| `WEB_SEARCH_MAX_RESULTS` | Máximo de resultados web | 5 |
-| `WEB_SEARCH_REGION` | Región de búsqueda (es-es) | es-es |
-| `WEB_SEARCH_TIME` | Filtro temporal (y = año) | y |
+| `VITE_API_PROXY_TARGET` | Backend destino para el proxy `/api` de Vite. | `http://localhost:8000` |
+| `CHOKIDAR_USEPOLLING` | Activa polling para file watching. | `false` |
 
-### Configuración API
+### Scraping
 
-| Variable | Descripción | Por Defecto |
+Estas variables las lee Scrapy desde `src/extract_data/settings.py`.
+
+| Variable | Descripcion | Por defecto |
 |----------|-------------|-------------|
-| `API_HOST` | Host del servidor API | 0.0.0.0 |
-| `API_PORT` | Puerto del servidor API | 8000 |
-| `API_CORS_ORIGINS` | Orígenes CORS permitidos | * |
+| `USER_AGENT` | User-Agent para los spiders. | Chrome/macOS |
+| `ROBOTSTXT_OBEY` | Respeta `robots.txt`. | `true` |
+| `CLOSESPIDER_TIMEOUT` | Timeout maximo por spider en segundos. | `3500` |
+| `DEPTH_LIMIT` | Profundidad maxima de crawling. | `3` |
+| `CONCURRENT_REQUESTS` | Requests concurrentes globales. | `8` |
+| `CONCURRENT_REQUESTS_PER_DOMAIN` | Requests concurrentes por dominio. | `4` |
+| `COOKIES_ENABLED` | Habilita cookies en Scrapy. | `false` |
+| `AUTOTHROTTLE_ENABLED` | Habilita AutoThrottle. | `true` |
+| `AUTOTHROTTLE_START_DELAY` | Delay inicial de AutoThrottle. | `2` |
+| `AUTOTHROTTLE_MAX_DELAY` | Delay maximo de AutoThrottle. | `60` |
+| `AUTOTHROTTLE_TARGET_CONCURRENCY` | Concurrencia objetivo de AutoThrottle. | `1.0` |
+| `HTTPCACHE_ENABLED` | Habilita cache HTTP de Scrapy. | `true` |
+| `HTTPCACHE_EXPIRATION_SECS` | Expiracion de cache HTTP en segundos. | `86400` |
 
-### Configuración de Scraping
+## Endpoints
 
-| Variable | Descripción | Por Defecto |
-|----------|-------------|-------------|
-| `INDEX_LANGUAGE` | Idioma para indexación | spanish |
-| `USER_AGENT` | User-Agent para requests | (Chrome latest) |
-| `ROBOTSTXT_OBEY` | Respetar robots.txt | True |
-| `DEPTH_LIMIT` | Profundidad máxima de scrapeo | 3 |
-| `CONCURRENT_REQUESTS` | Requests concurrentes | 8 |
+| Metodo | Ruta | Descripcion |
+|--------|------|-------------|
+| `GET` | `/` | Informacion basica de la API. |
+| `GET` | `/docs` | Documentacion Swagger UI. |
+| `GET` | `/redoc` | Documentacion ReDoc. |
+| `GET` | `/openapi.json` | Esquema OpenAPI. |
+| `POST` | `/api/query` | Recupera documentos locales/web y devuelve una `session_id` para feedback. |
+| `POST` | `/api/query/feedback` | Aplica feedback Rocchio, re-recupera documentos y genera la respuesta final. |
 
-## API Endpoints
-
-### Query
-
-```bash
-# Sin streaming
-POST /api/query
-```
-
-Cuerpo de la petición:
+### POST `/api/query`
 
 ```json
 {
-  "query": "¿Cuál es el mejor móvil de 2024?",
+  "query": "Que movil tiene mejor bateria?",
   "use_rag": true,
-  "top_k": 5,
+  "top_k": 10,
+  "relevance_threshold": 0.6,
   "use_query_expansion": true,
-  "use_internet_search": true,
-  "temperature": 0.3,
-  "relevance_threshold": 0.4,
-  "max_doc_chars": 500
+  "use_internet_search": true
+}
+```
+
+Respuesta principal:
+
+```json
+{
+  "query": "...",
+  "expanded_query": "...",
+  "top_local_score": 0.0,
+  "documents_retrieved": [],
+  "session_id": "..."
+}
+```
+
+### POST `/api/query/feedback`
+
+```json
+{
+  "session_id": "...",
+  "relevant_docs": ["doc_id_1"],
+  "non_relevant_docs": ["doc_id_2"],
+  "original_query": "Que movil tiene mejor bateria?",
+  "top_k": 3
+}
+```
+
+Respuesta principal:
+
+```json
+{
+  "answer": "...",
+  "retrieved_docs": [],
+  "reformulated_query": {},
+  "session_id": "..."
 }
 ```
 
 ## Estructura del Proyecto
 
-```
+```text
 SRI/
+├── api.py                         # Entrada para iniciar FastAPI
 ├── src/
-│   ├── config.py              # Configuración centralizada
-│   ├── api/                   # Aplicación FastAPI
-│   │   ├── app.py            # App principal
-│   │   ├── server.py         # Servidor
-│   │   ├── routes/           # Endpoints
-│   │   └── models.py         # Modelos Pydantic
-│   ├── rag/                   # Pipeline RAG
-│   ├── retrieval/             # Componentes de recuperación
-│   ├── vector_db/             # Base de datos vectorial
-│   ├── indexing/              # Indexación (InvertedIndex, DocumentChunker)
-│   ├── positioning/           # Ranking y presentación de resultados
-│   ├── generator/            # Wrapper del LLM
-│   ├── search_internet/      # Búsqueda web
-│   └── extract_data/         # Scraping de datos
-├── ui/                        # Interfaz React
-├── data/                      # Almacenamiento de documentos
-├── indexes/                   # Índices guardados
-├── models/                    # Archivos del modelo
-├── logs/                      # Logs del sistema
-├── .env                       # Variables de entorno
+│   ├── config.py                  # Configuracion central de la API/RAG
+│   ├── api/                       # App FastAPI, modelos y rutas
+│   │   ├── app.py
+│   │   ├── server.py
+│   │   ├── models.py
+│   │   └── routes/
+│   ├── errors/                    # Excepciones por modulo
+│   ├── extract_data/              # Scrapy: items, pipelines, settings y spiders
+│   │   └── spiders/
+│   │       ├── mobile/xataka_mobile/
+│   │       └── pc/xataka_pc/
+│   ├── feedback/                  # Rocchio feedback
+│   ├── generator/                 # Generacion de respuestas con LLM
+│   ├── indexing/                  # Carga, chunking e indice invertido
+│   ├── positioning/               # Ranking de resultados
+│   ├── rag/                       # Pipeline RAG
+│   ├── retrieval/                 # Retriever LM y wrappers LangChain
+│   ├── search_internet/           # Busqueda web y fetch de contenido
+│   ├── stats/                     # Estadisticas de consultas
+│   ├── utils/                     # Logger y descarga de modelos
+│   └── vector_db/                 # Chroma, embeddings y retriever vectorial
+├── ui/                            # UI React/Vite y config Nginx
+├── data/
+│   ├── mobile/                    # JSONL scrapeados de Xataka Mobile
+│   ├── pc/                        # JSONL scrapeados de Xataka PC
+│   └── stats/                     # Metricas persistidas
+├── indexes/                       # Indices LM, invertido y Chroma
+├── models/                        # Modelos GGUF y cache HuggingFace
+├── papers/                        # PDFs de referencia
+├── Dockerfile
+├── docker-compose.yml
+├── pyproject.toml
+├── scrapy.cfg
 └── README.md
 ```
 
-### Módulos Clave
-
-- **indexing/DocumentChunker**: Divide documentos en chunks (estrategias: fixed_size, paragraph, sliding)
-- **positioning/ResultRanker**: Ranking multi-factor con pesos configurables (relevancia, popularidad, frescura, completitud, calidad de fuente)
-- **stats/stats.py**: Sistema de tracking de métricas para evaluación del RAG
-- **api/session_manager**: Gestor de sesiones con tracking de tokens
-
 ## Agregar Documentos
 
-Los documentos se almacenan en el directorio `data/`. El sistema los indexa automáticamente al iniciar.
+Los documentos se almacenan en `data/`. El sistema los carga e indexa al iniciar.
 
-Formatos soportados: JSON, texto plano
+Formatos soportados: JSON/JSONL y texto plano.
 
 Ejemplo de documento JSON:
 
 ```json
 {
-  "title": "Título del artículo",
+  "title": "Titulo del articulo",
   "url": "https://ejemplo.com",
-  "content": "Contenido del artículo...",
+  "content": "Contenido del articulo...",
   "source": "xataka"
 }
 ```

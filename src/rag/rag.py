@@ -9,7 +9,6 @@ from src.config import (
     RAG_COOCCURRENCE_WINDOW,
     RAG_ENABLE_QUERY_EXPANSION,
     RAG_LM_RETRIEVER_WEIGHT,
-    RAG_MAX_DOC_CHARS,
     RAG_QUERY_EXPANSION_TERMS,
     RAG_RELEVANCE_THRESHOLD,
     RAG_RETRIEVER_K,
@@ -111,8 +110,7 @@ class RAGPipeline:
                 if cooccurrence_window is not None
                 else RAG_COOCCURRENCE_WINDOW
             )
-            self.max_doc_chars = RAG_MAX_DOC_CHARS
-
+            
             self.raw_lm_retriever = retriever_lm
             if self.enable_query_expansion:
                 cooccurrence_stats = self.query_processor.precompute_cooccurrence_matrix(
@@ -186,7 +184,7 @@ class RAGPipeline:
                 else RAG_RELEVANCE_THRESHOLD
             )
             effective_top_k = top_k if top_k is not None else RAG_RETRIEVER_K
-            self.max_doc_chars = max_doc_chars if max_doc_chars is not None else RAG_MAX_DOC_CHARS
+          
             logger.info(f"RAG: Processing query: {query}")
 
             # Process query: normalize, extract filters, optional expansion
@@ -311,10 +309,7 @@ class RAGPipeline:
 
             # Get top K from ranked results
             docs = ranked_docs[:effective_top_k]
-            for doc in docs:
-               if doc.page_content:
-                  doc.page_content = doc.page_content[:self.max_doc_chars]
-                  
+            
 
             logger.info(f"Using top {len(docs)} ranked documents")
 

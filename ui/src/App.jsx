@@ -30,10 +30,8 @@ function App() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     query: query,
-                    relevance_threshold: 0.6,
                     top_k: 10,
-                    use_query_expansion: true,
-                    use_internet_search: true,
+
                 }),
             })
 
