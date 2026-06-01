@@ -37,7 +37,18 @@ CONCURRENT_REQUESTS_PER_DOMAIN = os.getenv('CONCURRENT_REQUESTS_PER_DOMAIN',4)
 # Disable cookies (reduces tracking / server load)
 COOKIES_ENABLED = os.getenv('COOKIES_ENABLED',False)
 
-DEFAULT_REQUEST_HEADERS = os.getenv("DEFAULT_REQUEST_HEADERS",{
+import ast
+
+def parse_dict_env(key, default):
+    val = os.getenv(key)
+    if not val:
+        return default
+    try:
+        return ast.literal_eval(val)
+    except:
+        return default
+
+DEFAULT_REQUEST_HEADERS = parse_dict_env("DEFAULT_REQUEST_HEADERS", {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "es,en;q=0.9",
 })
