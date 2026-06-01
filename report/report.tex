@@ -1,4 +1,4 @@
-\documentclass[runningheads,a4paper]{llncs}
+\documentclass[a4paper]{llncs}
 
 \usepackage[utf8]{inputenc}
 \usepackage[spanish]{babel}
@@ -11,10 +11,7 @@
 
 \begin{document}
 
-\mainmatter
-
 \title{Sistema Híbrido de Recuperación de Información y Generación Aumentada para Noticias Tecnológicas}
-\titlerunning{Sistema SRI-RAG Híbrido}
 
 \author{Alberto E Marichal Fonseca \\ Amalia Gonzales Ortega \\ Katherine Rodríguez Rodríguez  }
 
@@ -125,7 +122,7 @@ donde $\operatorname{cf}(t)$ es la frecuencia total de $t$ en la colección y $|
 \begin{equation}
 P_{\mu}(t \mid d)=
 \frac{f_{t,d}+\mu P(t \mid C)}{|d|+\mu},
-\qquad \mu=2000.
+\qquad \mu=500.
 \end{equation}
 
 La consulta se representa como una distribución de pesos $P(t\mid q)$. El sistema calcula una media geométrica ponderada, implementada como exponencial de log-probabilidades:
