@@ -80,7 +80,8 @@ Crea un `.env` solo con los valores que necesites sobreescribir.
 
 | Variable | Descripcion | Opciones Validas | Por defecto |
 |----------|-------------|------------------|-------------|
-| `MODEL_PATH` | Ruta local a un `.gguf` o repo de HuggingFace. Vacio descarga el modelo por defecto. | Texto | `lm-kit/llama-3.1-8b-instruct-gguf` |
+| `MODEL_PATH` | repo de HuggingFace. Vacio descarga el modelo por defecto. | Texto | `lm-kit/llama-3.1-8b-instruct-gguf` |
+| `MODEL_NAME` | nombre del archivo .gguf a descargar | Texto | `Llama-3.1-8B-Instruct-Q4_K_S.gguf` |
 | `MODEL_TEMPERATURE` | Temperatura de muestreo del LLM. | Decimal mayor a 0 | `0.3` |
 | `MODEL_MAX_TOKENS` | Maximo de tokens generados. | Entero mayor a 0 | `200` |
 | `MODEL_N_CTX` | Tamano de ventana de contexto. | Entero mayor a 0 | `2048` |

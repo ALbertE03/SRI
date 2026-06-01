@@ -47,7 +47,7 @@ DATA_DIR = BASE_DIR / "data"
 
 # Default model URL for HuggingFace download
 DEFAULT_MODEL_HF_REPO = _get_env_str("MODEL_PATH","lm-kit/llama-3.1-8b-instruct-gguf")
-DEFAULT_MODEL_FILE = _get_env_str("MODEL_NAME","Llama-3.1-8B-Instruct-Q8_0.gguf")
+DEFAULT_MODEL_FILE = _get_env_str("MODEL_NAME","Llama-3.1-8B-Instruct-Q4_K_S.gguf")
 DEFAULT_MODEL_URL = f"https://huggingface.co/{DEFAULT_MODEL_HF_REPO}/resolve/main/{DEFAULT_MODEL_FILE}".lower()
 
 # Model path or HuggingFace repo ID. Empty downloads the default model.

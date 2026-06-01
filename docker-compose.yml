@@ -12,13 +12,13 @@ services:
       - ./data:/app/data
       - ./indexes:/app/indexes
       - ./models:/app/models
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [ gpu ]
+      #deploy:
+      # resources:
+      #  reservations:
+      #   devices:
+      #    - driver: nvidia
+      #    count: 1
+      #     capabilities: [ gpu ]
 
   crawler:
     build: .

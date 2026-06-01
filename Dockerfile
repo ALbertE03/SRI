@@ -12,7 +12,7 @@ WORKDIR /app
 
 COPY pyproject.toml .
 
-RUN uv pip install --system llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121
+RUN uv pip install --system llama-cpp-python 
 
 RUN uv pip install --system -e .
 
