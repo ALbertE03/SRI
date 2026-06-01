@@ -58,8 +58,6 @@ class VectorStore:
                 if metadata is None:
                     metadata = [{} for _ in range(len(doc_ids))]
                 
-                metadata = [{"url": m} if isinstance(m, str) else m for m in metadata]
-                
                 total = len(doc_ids)
                 num_batches = int(np.ceil(total / batch_size))
                 

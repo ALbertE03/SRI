@@ -49,64 +49,89 @@ docker compose up --build
 
 El servicio `api` escucha en el puerto `8000` y el servicio `ui` en el puerto `5173`.
 
+### Crawlers (Scrapy)
+
+Para recolectar datos de noticias tecnológicas, el proyecto incluye dos arañas de Scrapy: `xataka_mobile` y `xataka_pc`.
+
+**(Local):**
+
+```bash
+# Para ejecutar los crawlers de forma local necesitas activar tu ambiente y ejecutar:
+uv run scrapy crawl xataka_mobile
+uv run scrapy crawl xataka_pc
+```
+
+**Docker:**
+Se ha agregado un servicio de crawler que usa el perfil `tools`. Puedes ejecutarlo así:
+
+```bash
+# Extraer datos con el crawler de móviles usando Docker
+docker compose run --rm crawler xataka_mobile
+
+# Extraer datos con el crawler de PC usando Docker
+docker compose run --rm crawler xataka_pc
+```
+
 ## Variables de Entorno
 
-Crea un `.env` solo con los valores que necesites sobreescribir. Estas son las variables usadas por la API/RAG; la mayoria se leen desde `src/config.py`.
+Crea un `.env` solo con los valores que necesites sobreescribir.
 
 ### Modelo
 
-| Variable | Descripcion | Por defecto |
-|----------|-------------|-------------|
-| `MODEL_PATH` | Ruta local a un `.gguf` o repo de HuggingFace. Vacio descarga el modelo por defecto. | `""` |
-| `MODEL_TEMPERATURE` | Temperatura de muestreo del LLM. | `0.3` |
-| `MODEL_MAX_TOKENS` | Maximo de tokens generados. | `2048` |
-| `MODEL_N_CTX` | Tamano de ventana de contexto. | `2048` |
-| `MODEL_VERBOSE` | Logs verbose de `llama-cpp`. | `false` |
-| `GGML_BACKEND` | Backend para cargar embeddings: `cpu`, `cuda` o `metal`. | `cpu` |
+| Variable | Descripcion | Opciones Validas | Por defecto |
+|----------|-------------|------------------|-------------|
+| `MODEL_PATH` | Ruta local a un `.gguf` o repo de HuggingFace. Vacio descarga el modelo por defecto. | Texto | `lm-kit/llama-3.1-8b-instruct-gguf` |
+| `MODEL_TEMPERATURE` | Temperatura de muestreo del LLM. | Decimal mayor a 0 | `0.3` |
+| `MODEL_MAX_TOKENS` | Maximo de tokens generados. | Entero mayor a 0 | `200` |
+| `MODEL_N_CTX` | Tamano de ventana de contexto. | Entero mayor a 0 | `2048` |
+| `MODEL_VERBOSE` | Logs verbose de `llama-cpp`. | `true`, `false` | `false` |
+| `GGML_BACKEND` | Backend para cargar embeddings. | `cpu`, `cuda`, `metal` | `cpu` |
+| `N_BATCH` | Tamaño del batch para inferencia LLM. | Entero mayor a 0 | `64` |
+| `N_THREADS` | Hilos a usar en CPU. | Entero mayor a 0 | `8` |
 
 ### RAG
 
-| Variable | Descripcion | Por defecto |
-|----------|-------------|-------------|
-| `RAG_RELEVANCE_THRESHOLD` | Umbral para activar busqueda web si la relevancia local es baja. | `0.6` |
-| `RAG_ENABLE_QUERY_EXPANSION` | Habilita expansion de consulta por coocurrencia. | `true` |
-| `RAG_QUERY_EXPANSION_TERMS` | Numero de terminos agregados por expansion. | `10` |
-| `RAG_COOCCURRENCE_WINDOW` | Ventana para matriz de coocurrencia. | `1` |
-| `RAG_LM_RETRIEVER_WEIGHT` | Peso del retriever LM en el ensemble. | `0.5` |
-| `RAG_VECTOR_RETRIEVER_WEIGHT` | Peso del retriever vectorial en el ensemble. | `0.5` |
-| `RAG_RETRIEVER_K` | Numero de documentos a recuperar por defecto. | `10` |
+| Variable | Descripcion | Opciones Validas | Por defecto |
+|----------|-------------|------------------|-------------|
+| `RAG_RELEVANCE_THRESHOLD` | Umbral para activar busqueda web. | Decimal `0.0` - `1.0` | `0.5` |
+| `RAG_ENABLE_QUERY_EXPANSION` | Habilita expansion de consulta por coocurrencia. | `true`, `false` | `true` |
+| `RAG_QUERY_EXPANSION_TERMS` | Numero de terminos agregados por expansion. | Entero mayor a 0 | `10` |
+| `RAG_COOCCURRENCE_WINDOW` | Ventana para matriz de coocurrencia. | Entero mayor a 0 | `1` |
+| `RAG_LM_RETRIEVER_WEIGHT` | Peso del retriever LM en el ensemble. | Decimal `0.0` - `1.0` | `0.5` |
+| `RAG_VECTOR_RETRIEVER_WEIGHT` | Peso del retriever vectorial en el ensemble. | Decimal `0.0` - `1.0` | `0.5` |
+| `RAG_RETRIEVER_K` | Numero de documentos a recuperar por defecto. | Entero mayor a 0 | `10` |
 
 ### Indexacion y Vector DB
 
-| Variable | Descripcion | Por defecto |
-|----------|-------------|-------------|
-| `VECTOR_DB_COLLECTION_NAME` | Nombre de la coleccion Chroma. | `sri_documents_transformer` |
-| `VECTOR_DB_TOP_K` | Numero de resultados en busqueda vectorial directa. | `10` |
-| `BATCH_SIZE` | Tamano de lote al poblar Chroma. | `1000` |
-| `RESET` | Borra y recrea la coleccion vectorial al indexar. | `false` |
-| `FORCE` | Fuerza reconstruccion de componentes al iniciar la API. | `false` |
-| `CHUNK_SIZE` | Tamano objetivo de chunk. | `3500` |
-| `CHUNK_OVERLAP` | Solapamiento entre chunks. | `100` |
-| `STRATEGY` | Estrategia de chunking. | `sliding` |
-| `MIN_CHUNK_SIZE` | Tamano minimo de chunk. | `100` |
-| `INDEX_LANGUAGE` | Idioma del normalizador. | `spanish` |
-| `MU` | Parametro de suavizado del retriever LM. | `2000.0` |
-| `MAX_FEATURES` | Maximo de features para fallback TF-IDF. | `15000` |
+| Variable | Descripcion | Opciones Validas | Por defecto |
+|----------|-------------|------------------|-------------|
+| `VECTOR_DB_COLLECTION_NAME` | Nombre de la coleccion Chroma. | Texto | `sri_documents_transformer` |
+| `VECTOR_DB_TOP_K` | Numero de resultados en busqueda vectorial. | Entero mayor a 0 | `10` |
+| `BATCH_SIZE` | Tamano de lote al poblar Chroma. | Entero mayor a 0 | `1000` |
+| `RESET` | Borra y recrea la coleccion vectorial al indexar. | `true`, `false` | `false` |
+| `FORCE` | Fuerza reconstruccion de componentes al iniciar la API. | `true`, `false` | `false` |
+| `CHUNK_SIZE` | Tamano objetivo de chunk. | Entero mayor a 0 | `500` |
+| `CHUNK_OVERLAP` | Solapamiento entre chunks. | Entero mayor a 0 | `100` |
+| `STRATEGY` | Estrategia de chunking. | `sliding` | `sliding` |
+| `MIN_CHUNK_SIZE` | Tamano minimo de chunk. | Entero mayor a 0 | `100` |
+| `INDEX_LANGUAGE` | Idioma del normalizador. | `spanish`, `english` | `spanish` |
+| `MU` | Parametro de suavizado del retriever LM. | Decimal mayor a 0 | `500.0` |
+| `MAX_FEATURES` | Maximo de features para fallback TF-IDF. | Entero mayor a 0 | `384` |
 
 ### Busqueda Web, API y Feedback
 
-| Variable | Descripcion | Por defecto |
-|----------|-------------|-------------|
-| `WEB_SEARCH_ENGINE` | Motores de busqueda: `all`, `duckduckgo`, `yandex`, `brave`, `google`, `bing` o lista separada por coma/espacio. | `all` |
-| `WEB_SEARCH_MAX_RESULTS` | Maximo de resultados por busqueda web. | `3` |
-| `WEB_SEARCH_REGION` | Region para DuckDuckGo. | `es-es` |
-| `WEB_SEARCH_TIME` | Filtro temporal para DuckDuckGo. | `y` |
-| `DEFAULT_TIMEOUT` | Timeout HTTP para extraer contenido web. | `15` |
-| `API_HOST` | Host del servidor FastAPI. | `0.0.0.0` |
-| `API_PORT` | Puerto del servidor FastAPI. | `8000` |
-| `ALPHA` | Peso de la consulta original en Rocchio. | `1.0` |
-| `BETA` | Peso de documentos relevantes en Rocchio. | `0.75` |
-| `GAMMA` | Peso de documentos no relevantes en Rocchio. | `0.15` |
+| Variable | Descripcion | Opciones Validas | Por defecto |
+|----------|-------------|------------------|-------------|
+| `WEB_SEARCH_ENGINE` | Motores de busqueda. | `all`, `duckduckgo`, `yandex`, `brave`, `google`, `bing` | `all` |
+| `WEB_SEARCH_MAX_RESULTS` | Maximo de resultados por busqueda web. | Entero mayor a 0 | `3` |
+| `WEB_SEARCH_REGION` | Region para DuckDuckGo. | `es-es`, `en-us` | `es-es` |
+| `WEB_SEARCH_TIME` | Filtro temporal para DuckDuckGo. | `y`, `m`, `w` | `y` |
+| `DEFAULT_TIMEOUT` | Timeout HTTP para extraer contenido web. | Entero mayor a 0 | `15` |
+| `API_HOST` | Host del servidor FastAPI. | IP | `0.0.0.0` |
+| `API_PORT` | Puerto del servidor FastAPI. | Puerto | `8000` |
+| `ALPHA` | Peso de la consulta original en Rocchio. | Decimal mayor a 0 | `1.0` |
+| `BETA` | Peso de documentos relevantes en Rocchio. | Decimal mayor a 0 | `0.75` |
+| `GAMMA` | Peso de documentos no relevantes en Rocchio. | Decimal mayor a 0 | `0.15` |
 
 ### UI
 

@@ -1,18 +1,15 @@
-
 import os
-import sys
 from pathlib import Path
 from typing import Optional
 
-import requests
 
-from src.config import DEFAULT_MODEL_FILE, DEFAULT_MODEL_URL, MODELS_DIR
+from src.config import DEFAULT_MODEL_FILE, MODELS_DIR,DEFAULT_MODEL_FILE
 from src.errors.llm_errors import LLMModelNotFoundError
 from src.utils.logger import get_logger
 
 logger = get_logger("ModelDownloader")
 
-DEFAULT_HF_REPO = "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF"
+DEFAULT_HF_REPO = "lm-kit/llama-3.1-8b-instruct-gguf"
 
 
 class ModelDownloader:
@@ -47,8 +44,9 @@ class ModelDownloader:
             Path to the downloaded model file
         """
         from huggingface_hub import hf_hub_download, list_repo_files
+        from tqdm import tqdm  
         
-        # Create safe filename from repo_id
+
         safe_name = repo_id.replace("/", "_")
         model_path = MODELS_DIR / f"{safe_name}.gguf"
         
@@ -59,7 +57,6 @@ class ModelDownloader:
         MODELS_DIR.mkdir(parents=True, exist_ok=True)
         
         try:
-            # Find GGUF file in repo
             files = list(list_repo_files(repo_id))
             gguf_file = None
             for f in files:
@@ -70,14 +67,27 @@ class ModelDownloader:
             if not gguf_file:
                 raise LLMModelNotFoundError(f"No GGUF file found in {repo_id}")
             
-            # Download
+            gguf_file = DEFAULT_MODEL_FILE if DEFAULT_MODEL_FILE else gguf_file
+     
+            logger.info(f"Downloading  {gguf_file} from HuggingFace...")
+       
             temp_path = hf_hub_download(repo_id, gguf_file)
             
-            # Move to models dir
-            import shutil
-            shutil.copy(temp_path, model_path)
+            logger.info(f"Saving model to final destination...")
+            file_size = os.path.getsize(temp_path)
             
-            logger.info(f"Model downloaded: {model_path}")
+            with open(temp_path, 'rb') as fsrc:
+                with open(model_path, 'wb') as fdst:
+                    with tqdm(total=file_size, unit='B', unit_scale=True, desc="Copying file") as pbar:
+                        while True:
+                      
+                            buf = fsrc.read(1024 * 1024)
+                            if not buf:
+                                break
+                            fdst.write(buf)
+                            pbar.update(len(buf))
+            
+            logger.info(f"Model downloaded and saved: {model_path}")
             return model_path
             
         except Exception as exc:
@@ -107,18 +117,16 @@ class ModelDownloader:
             return ModelDownloader.download_default_model()
         
         try:
-            # Check direct path
             path = Path(model_path)
             if path.exists():
                 return path
             
-            # Try as HuggingFace repo ID
             if "/" in model_path and not model_path.startswith("/"):
                 try:
+                    logger.info("Downloading model from HuggingFace repo: %s", model_path)
                     return ModelDownloader.download_from_huggingface(model_path)
                 except Exception as e:
                     logger.warning(f"Failed to download {model_path}: {e}")
-            # Fall back to default
             return ModelDownloader.download_default_model()
         except Exception as exc:
             logger.error(f"Error ensuring model exists: {exc}")

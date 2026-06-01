@@ -15,7 +15,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 from nltk.corpus import stopwords
-from nltk.stem import SnowballStemmer
+from nltk.stem import SnowballStemmer,WordNetLemmatizer
 from nltk.tokenize import word_tokenize
 
 from src.errors.indexing_errors import (
@@ -49,17 +49,18 @@ class TextNormalizer:
     def __init__(self, language: str = "spanish") -> None:
         self.language = language
         self._stemmer = SnowballStemmer(language)
+        #self._lem = WordNetLemmatizer()
 
     def normalize(self, text: str, stem: bool = False, stopw: bool = True) -> list[str]:
         """Return a list of normalised tokens from *text*."""
         if not text:
             return []
         # lowercase
-        text = text.lower()
+        text = text.lower().replace("("," ").replace(")"," ").replace("|"," ").replace("`"," ").replace(":"," ").replace(", "," ").replace("''"," ")
 
         # strip URLs
         text = re.sub(r"https?://\S+|www\.\S+", " ", text)
-
+        text = re.sub(r"\.\.\."," ",text)
         # strip non-alphanumeric (keep letters, digits and spaces)
         text = re.sub(r"[^a-záéíóúüñ\w\s-]", " ", text, flags=re.UNICODE)
         # remove emojis
@@ -80,7 +81,7 @@ class TextNormalizer:
 
     def normalize_query(self, query: str) -> list[str]:
         """Normalise a user query."""
-        return self.normalize(query)
+        return self.normalize(query,stem=True,stopw=True)
     def __str__(self) -> str:
         return f"TextNormalizer(language={self.language})"
 
@@ -115,13 +116,7 @@ class InvertedIndex:
 
     def build(self, documents: list[dict]) -> None:
         """
-        Build the index from *documents*.
-
-        Each document must have:
-            - "id"      : str – unique identifier
-            - "content" : str – main text to index
-            - "title"   : str (optional) – boosted at index time
-
+        Build the index from documents.
         """
         self._index = defaultdict(dict)
         self._doc_info = {}
@@ -146,8 +141,9 @@ class InvertedIndex:
                 )
 
             text = title + " " + content
-            tokens = self.normalizer.normalize(text,stopw=True, stem=True)
 
+            #tokens = self.normalizer.normalize(text,stopw=True, stem=True)
+            tokens = doc.get("tokens",[])
             if not tokens:
                 continue
 
@@ -165,6 +161,7 @@ class InvertedIndex:
                 "source": doc.get("source", ""),
                 "date": doc.get("date", ""),
                 "author": doc.get("author", ""),
+                "front_prew":content
             }
             self._N += 1
 

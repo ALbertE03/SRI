@@ -2,7 +2,7 @@
 import logging
 from fastapi import APIRouter, HTTPException
 logger = logging.getLogger(__name__)
-from typing import Dict,Any
+from typing import Dict, Any, Iterable
 from src.api.models import QueryRequest, QueryResponse,ErrorResponse,FeedbackRequest,FeedbackResponse
 from src.errors.rag_errors import (
     RAGError,
@@ -21,6 +21,116 @@ globals = {}
 def set_dependencies(globals_dict):
     """Set dependencies from the main server."""
     globals.update(globals_dict)
+
+
+def _metadata_for(doc: Any) -> Dict[str, Any]:
+    if hasattr(doc, "metadata"):
+        return dict(getattr(doc, "metadata") or {})
+    if isinstance(doc, dict):
+        return dict(doc.get("metadata") or {})
+    return {}
+
+
+def _first_non_empty(*values: Any) -> str:
+    for value in values:
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return ""
+
+
+def _document_text(doc: Any, metadata: Dict[str, Any]) -> str:
+    if metadata.get("front_prev"):
+        return str(metadata["front_prev"])
+    if hasattr(doc, "page_content"):
+        return getattr(doc, "page_content") or ""
+    if isinstance(doc, dict):
+        return _first_non_empty(
+            doc.get("content"),
+            doc.get("text"),
+            doc.get("page_content"),
+            doc.get("content_preview"),
+            metadata.get("front_prev"),
+        )
+    return str(doc) if doc is not None else ""
+
+
+def _document_aliases(serialized: Dict[str, Any]) -> Iterable[str]:
+    metadata = serialized.get("metadata") or {}
+    aliases = {
+        serialized.get("id"),
+        serialized.get("doc_id"),
+        serialized.get("chunk_id"),
+        serialized.get("document_key"),
+        serialized.get("url"),
+        metadata.get("doc_id"),
+        metadata.get("chunk_id"),
+        metadata.get("url"),
+        metadata.get("source"),
+    }
+    return [str(alias) for alias in aliases if alias]
+
+
+def _serialize_document(doc: Any, fallback_idx: int = 0) -> Dict[str, Any]:
+    metadata = _metadata_for(doc)
+    text = _document_text(doc, metadata)
+
+    if isinstance(doc, dict):
+        raw_id = _first_non_empty(doc.get("id"), doc.get("doc_id"))
+        title = _first_non_empty(doc.get("title"), metadata.get("title"), "Sin título")
+        url = _first_non_empty(doc.get("url"), metadata.get("url"))
+        source = _first_non_empty(doc.get("source"), metadata.get("source"), "Local")
+        score = doc.get("score", metadata.get("score", 0))
+        chunk_id = _first_non_empty(doc.get("chunk_id"), metadata.get("chunk_id"))
+        chunk_index = doc.get("chunk_index", metadata.get("chunk_index"))
+        chunk_total = doc.get("chunk_total", metadata.get("chunk_total"))
+    else:
+        raw_id = _first_non_empty(getattr(doc, "id", None), metadata.get("doc_id"))
+        title = _first_non_empty(metadata.get("title"), "Sin título")
+        url = _first_non_empty(metadata.get("url"))
+        source = _first_non_empty(metadata.get("source"), "Local")
+        score = metadata.get("score", 0)
+        chunk_id = _first_non_empty(metadata.get("chunk_id"))
+        chunk_index = metadata.get("chunk_index")
+        chunk_total = metadata.get("chunk_total")
+
+    document_key = _first_non_empty(url, title, raw_id, metadata.get("source"), f"doc_{fallback_idx}")
+    if chunk_id:
+        stable_id = chunk_id
+    elif chunk_index is not None:
+        stable_id = f"{document_key}#chunk-{chunk_index}"
+    else:
+        stable_id = _first_non_empty(raw_id, f"{document_key}#doc-{fallback_idx}")
+
+    metadata = {
+        **metadata,
+        "document_key": document_key,
+        "chunk_id": chunk_id or stable_id,
+        "chunk_index": chunk_index,
+        "chunk_total": chunk_total,
+    }
+
+    return {
+        "id": stable_id,
+        "doc_id": raw_id or stable_id,
+        "chunk_id": chunk_id or stable_id,
+        "document_key": document_key,
+        "chunk_index": chunk_index,
+        "chunk_total": chunk_total,
+        "text": text,
+        "content": text,
+        "url": url,
+        "title": title,
+        "source": source,
+        "score": score or 0,
+        "metadata": metadata,
+    }
+
+
+def _serialize_documents(docs: Iterable[Any]) -> list[Dict[str, Any]]:
+    return [_serialize_document(doc, idx) for idx, doc in enumerate(docs or [])]
     
 @router.post(
     "",
@@ -66,21 +176,21 @@ async def query(request: QueryRequest) -> QueryResponse:
                 top_k=request.top_k,
                 use_expand=request.use_query_expansion,
                 relevance_threshold=request.relevance_threshold,
-                max_doc_chars=request.max_doc_chars,
                 use_internet_search=request.use_internet_search,
             )
+        serialized_docs = _serialize_documents(result.get("documents", []))
         import time
         _session_id  = str(time.time())
         _session_store[_session_id] = {
             "original_query": request.query,
             "expanded_query":result.get('expanded_query',''),
-            "original_docs": result.get("documents", []),
+            "original_docs": serialized_docs,
             "created_at": __import__('datetime').datetime.now()
         }
         return QueryResponse(
             query=result["query"],
             expanded_query=result.get("expanded_query",""),
-            documents_retrieved= result.get("documents", []),
+            documents_retrieved=serialized_docs,
             top_local_score=result["top_local_score"],
             session_id=_session_id, 
             
@@ -157,26 +267,12 @@ async def feedback(request: FeedbackRequest) -> FeedbackResponse:
         non_relevant_texts = []
         
         doc_map = {}
-        for doc in original_docs:
-        
-            if hasattr(doc, 'id'):  
-                doc_id = doc.id if doc.id else None
-                
-                if not doc_id and hasattr(doc, 'metadata'):
-                    doc_id = doc.metadata.get('url') or doc.metadata.get('source')
-                
-                # Obtener texto
-                doc_text = doc.page_content if hasattr(doc, 'page_content') else ""
-                
-            elif isinstance(doc, dict):  # Es un diccionario
-                doc_id = doc.get("id") or doc.get("doc_id")
-                if not doc_id and "metadata" in doc:
-                    doc_id = doc["metadata"].get("url") or doc["metadata"].get("source")
-                doc_text = doc.get("content") or doc.get("text") or doc.get("page_content", "")
-            else:
-                continue  # Saltar si no es ni dict ni Document
-            
-            if doc_id and doc_text:
+        for idx, doc in enumerate(original_docs):
+            serialized = _serialize_document(doc, idx)
+            doc_text = serialized.get("content", "")
+            if not doc_text:
+                continue
+            for doc_id in _document_aliases(serialized):
                 doc_map[doc_id] = doc_text
         
         # Clasificar documentos relevantes y no relevantes
@@ -213,36 +309,20 @@ async def feedback(request: FeedbackRequest) -> FeedbackResponse:
             chunker=globals['chunker'],
             top_k=request.top_k,
             use_expand=False,
-            relevance_threshold=0.6,
-            max_doc_chars=None,
-            use_internet_search=True,
+            relevance_threshold=0.3,
+            use_internet_search=False,
         )
         
         # Generar contexto y respuesta
         context = await get_context(search_result.get('documents', []))
+        print(original_query)
         answer = await globals['_generator'].generate(context, original_query)
         logger.info(f"Anwser generated")
-        serialized_docs = []
-        for doc in search_result.get("documents", []):
-            if hasattr(doc, 'page_content'):  # LangChain Document
-                serialized_docs.append({
-                    "id": getattr(doc, 'id', None) or doc.metadata.get('url', ''),
-                    "text": doc.page_content,
-                    "content": doc.page_content,
-                    "url": doc.metadata.get('url', ''),
-                    "title": doc.metadata.get('title', 'Sin título'),
-                    "source": doc.metadata.get('source', 'Internet'),
-                    "score": doc.metadata.get('score', 0),
-                    "metadata": doc.metadata
-                })
-            elif isinstance(doc, dict):  # Ya es diccionario
-                serialized_docs.append(doc)
-            else:
-                serialized_docs.append({"content": str(doc)})
+        serialized_docs = _serialize_documents(search_result.get("documents", []))
         
         if request.session_id in _session_store:
             del _session_store[request.session_id]
-        
+        print(answer)
         return FeedbackResponse(
             answer=answer,
             retrieved_docs=serialized_docs,
@@ -278,4 +358,4 @@ async def get_context(docs):
          
             context_parts.append(doc_text)
     
-    return "\n\n---\n\n".join(context_parts)
+    return "\n".join(context_parts)

@@ -151,7 +151,6 @@ class RAGPipeline:
             top_k: int | None = None,
             use_expand: bool = True,
             relevance_threshold: float | None = None,
-            max_doc_chars: int | None = None,
             use_internet_search: bool = True,
         ) -> Dict[str, Any]:
             """
@@ -187,7 +186,7 @@ class RAGPipeline:
           
             logger.info(f"RAG: Processing query: {query}")
 
-            # Process query: normalize, extract filters, optional expansion
+            # Process query: normalize, optional expansion
             try:
                 processed_query = self.query_processor.process(query)
                 logger.info(f"Normalized query: {processed_query.text}")
@@ -225,7 +224,6 @@ class RAGPipeline:
                             "Expanded query terms: " + ", ".join(added_terms[: self.expansion_terms])
                         )
                     logger.info("Query expanded via co-occurrence matrix")
-                    retrieval_query_text =retrieval_query_text
                     logger.info(f"Expanded query: {retrieval_query_text}")
                 except Exception as exc:
                     logger.info(f"Co-occurrence expansion skipped: {exc}")
@@ -274,24 +272,26 @@ class RAGPipeline:
                         chunks_as_dicts = chunker.chunk_corpus(docs_as_dicts)
                         internet_docs_chunked=[]
                         for c in chunks_as_dicts:
-                            if not c.get("content"):
+                            if not c.get("tokens"):
                                 continue
                                 
                             relevance_score = self._calculate_relevance_score(
                                 processed_query.text, 
-                                c["content"]
+                               " ".join(c.get("tokens", ""))
                             )
                             
                             doc = LCDocument(
-                                page_content=c["content"],
+                                page_content=" ".join(c.get("tokens", "")),
                                 metadata={
                                     "title": c.get("title", "Internet Result"),
                                     "url": c.get("url", ""),
                                     "source": c.get("source", "Internet"),
                                     "chunk_id": c.get("chunk_id", ""),
                                     "chunk_index": c.get("chunk_index", 0),
-                                    "score": relevance_score,  
-                                    "retriever": "web_search"
+                                    "score": relevance_score, 
+                                    "retriever": "web_search",
+                                    "front_prev":c.get("content")
+                                    
                                 },
                             )
                             internet_docs_chunked.append(doc)

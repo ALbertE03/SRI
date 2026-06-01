@@ -46,8 +46,8 @@ DATA_DIR = BASE_DIR / "data"
 # ============================================================================
 
 # Default model URL for HuggingFace download
-DEFAULT_MODEL_HF_REPO = "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF"
-DEFAULT_MODEL_FILE = "TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf"
+DEFAULT_MODEL_HF_REPO = _get_env_str("MODEL_PATH","lm-kit/llama-3.1-8b-instruct-gguf")
+DEFAULT_MODEL_FILE = _get_env_str("MODEL_NAME","Llama-3.1-8B-Instruct-Q8_0.gguf")
 DEFAULT_MODEL_URL = f"https://huggingface.co/{DEFAULT_MODEL_HF_REPO}/resolve/main/{DEFAULT_MODEL_FILE}".lower()
 
 # Model path or HuggingFace repo ID. Empty downloads the default model.
@@ -55,16 +55,18 @@ MODEL_PATH = _get_env_str("MODEL_PATH", "")
 
 # LLM parameters
 MODEL_TEMPERATURE = _get_env_float("MODEL_TEMPERATURE", 0.3)
-MODEL_MAX_TOKENS = _get_env_int("MODEL_MAX_TOKENS", 2048)
+MODEL_MAX_TOKENS = _get_env_int("MODEL_MAX_TOKENS", 200)
 MODEL_N_CTX = _get_env_int("MODEL_N_CTX", 2048)
 MODEL_VERBOSE = _get_env_bool("MODEL_VERBOSE", False)
-
+N_BATCH = _get_env_int("N_BATCH",64)
+N_THREADS=_get_env_int("N_THREADS",8)
+N_GPU_LAYERS=_get_env_bool("N_GPU_LAYERS",0)
 # ============================================================================
 # RAG CONFIGURATION
 # ============================================================================
 
 # Relevance threshold for triggering web search
-RAG_RELEVANCE_THRESHOLD = _get_env_float("RAG_RELEVANCE_THRESHOLD", 0.6)
+RAG_RELEVANCE_THRESHOLD = _get_env_float("RAG_RELEVANCE_THRESHOLD", 0.5)
 
 # Query expansion settings
 RAG_ENABLE_QUERY_EXPANSION = _get_env_bool("RAG_ENABLE_QUERY_EXPANSION", True)
@@ -110,7 +112,7 @@ FORCE = _get_env_bool("FORCE", False)
 # ============================================================================
 # INDEXING CONFIGURATION
 # ============================================================================
-CHUNK_SIZE = _get_env_int("CHUNK_SIZE", 3500)
+CHUNK_SIZE = _get_env_int("CHUNK_SIZE", 500)
 CHUNK_OVERLAP = _get_env_int("CHUNK_OVERLAP", 100)
 STRATEGY = _get_env_str("STRATEGY", "sliding")
 MIN_CHUNK_SIZE = _get_env_int("MIN_CHUNK_SIZE", 100)
@@ -119,10 +121,10 @@ INDEX_LANGUAGE = _get_env_str("INDEX_LANGUAGE", "spanish")
 INDEX_SAVE_DIR = str((INDEXES_DIR).absolute())
 
 # LM retrieval
-MU = _get_env_float("MU", 2000.0)
+MU = _get_env_float("MU", 500.0)
 
 # TF-IDF fallback
-MAX_FEATURES = _get_env_int("MAX_FEATURES", 15000)
+MAX_FEATURES = _get_env_int("MAX_FEATURES", 384)
 
 # Web content fetching
 DEFAULT_TIMEOUT = _get_env_int("DEFAULT_TIMEOUT", 15)

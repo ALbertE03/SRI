@@ -1,40 +1,14 @@
-"""Answer generator - separate from RAG pipeline."""
-
-from langchain_core.runnables import RunnablePassthrough
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import PromptTemplate
-from langchain_community.llms import LlamaCpp
+from llama_cpp import Llama
 import logging
+
 logger = logging.getLogger(__name__)
 import asyncio
-from src.config  import MODEL_N_CTX
-a="""
-Eres un asistente de tecnologia especializado en tecnologia, moviles, PCs y comparaciones de productos.
-
-Basandote unicamente en la siguiente informacion, responde la pregunta del usuario.
-
-Contexto:
-{context}
-
-Pregunta del usuario: {question}
-
-
-Instrucciones:
-- Responde en ESPAÑOL
-- NUNCA inventes informacion que no este en el contexto
-- Usa FORMATO MARKDOWN para facilitar el parseo
-- Para comparaciones usa TABLAS en formato markdown:
-  | Caracteristica | Producto 1 | Producto 2 | ....  | Prdocuto N |
-  |----------------|------------|------------| ....  |------------|
-  | Valor 1        | Dato 1     | Dato 2     | ....  | Dato N     |
-- Para listas usabullet points con guiones (-)
-- Si la pregunta es sobre ranking o "mejor", haz una lista numerada con los top 3-5
-- Si la pregunta requiere comparacion, haz una tabla comparativa"""
-
+from src.config import MODEL_N_CTX
+import time
 
 class AnswerGenerator:
     """
-    Generates answers using LLM. Separated from RAG for cleaner architecture.
+    Generates answers using LLM.
     """
 
     _instance = None
@@ -42,80 +16,145 @@ class AnswerGenerator:
 
     def __init__(
         self,
-        llm: LlamaCpp,
+        model_path: str,
         prompt_template: str | None = None,
+        n_ctx: int = 2048,
+        n_threads: int = 8,
+        n_gpu_layers: int = 0,
+        temperature: float = 0.1,
+        n_batch:int=64,
+        verbose:bool=False,
+        max_token:int=200,
+        repeat_penalty:int = 1.3
     ) -> None:
-        self.llm = llm
-        self.prompt_template = prompt_template or (
-            """Eres un asistente de tecnología. Usa SOLO el contexto.
-            Responde en español.
-
-Contexto: {context}
-
-Pregunta: {question}
-
-"""
-        )
-
-        self.prompt = PromptTemplate.from_template(self.prompt_template)
-        self.chain = self.prompt | self.llm | StrOutputParser()
+        """
+        Initialize AnswerGenerator with llama.cpp model.
         
-    def __new__(cls, llm=None, prompt_template=None):
+        Args:
+            model_path: Path to the GGUF model file
+            prompt_template: Custom prompt template (optional)
+            n_ctx: Context window size
+            n_threads: Number of CPU threads
+            n_gpu_layers: Number of layers to offload to GPU [0 for only cpu (-1 for all gpu layers)]
+            temperature: Default temperature for generation
+            n_batch: ....
+            verbose:...
+            max_token:...
+            repeat_penalty:...
+
+        """
+        self.model_path = model_path
+        self.default_temperature = temperature
+        self.max_tokens=max_token
+        # llama.cpp model
+        self.llm = Llama(
+            model_path=model_path,
+            n_ctx=n_ctx,
+            n_threads=n_threads,
+            n_batch=n_batch,
+            n_gpu_layers=n_gpu_layers,
+            verbose=verbose
+        )
+        
+        self.prompt_template = prompt_template or self.crear_prompt_llama()
+
+    def crear_prompt_llama(self):
+        """Create prompt for Llama 3.1 format."""
+        
+        system_message = """Eres un asistente técnico especializado en tecnología (móviles, PCs, electrónica).
+    REGLAS ESTRICTAS:
+    1. Responde SOLO con información del contexto proporcionado
+    2. NO inventes datos ni uses conocimiento externo
+    3. Responde SIEMPRE en español
+    FORMATO DE RESPUESTA (selecciona el apropiado según la pregunta):
+
+    SI ES RANKING O "MEJOR":
+    1. [Producto] - [razón principal]
+    2. [Producto] - [razón principal]
+    3. [Producto] - [razón principal]
+    SI ES DESCRIPCIÓN SIMPLE:
+    - [Característica]: [valor]
+    - [Característica]: [valor]
+    SI EL CONTEXTO NO CONTIENE LA INFORMACIÓN:
+    "No encuentro información en el contexto proporcionado sobre [tema]."""
+
+        user_message = """CONTEXTO:
+    {contexto}
+
+    PREGUNTA DEL USUARIO:
+    {pregunta}"""
+
+        prompt = f"""<|start_header_id|>system<|end_header_id|>
+
+    {system_message}<|eot_id|>
+    <|start_header_id|>user<|end_header_id|>
+
+    {user_message}<|eot_id|>
+    <|start_header_id|>assistant<|end_header_id|>
+
+    """
+        
+        return prompt
+
+    def __new__(cls, model_path=None, prompt_template=None, **kwargs):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
         return cls._instance
     
+    def _invoke_llm(self, prompt: str, temperature: float = None) -> str:
+        """Internal method to invoke llama.cpp model."""
+        temp = temperature if temperature is not None else self.default_temperature
+        t= time.time()
+        print(prompt)
+        response = self.llm.create_chat_completion(
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=self.max_tokens,
+            temperature=temp,
+            repeat_penalty=1.3,
+            stop=["<|eot_id|>", "<|end_of_text|>"]
+        )
+        print(time.time()-t,"segundos")
+        return response["choices"][0]["message"]["content"]
+    
     async def generate(self, context: str, question: str, temperature: float | None = None) -> str:
         """Generate answer with context."""
-        logger.info(f"Generating anwser....")
+        logger.info(f"Geerando respuetsa....")
         
-        if temperature is not None:
-            original_temp = self.llm.temperature
-            self.llm.temperature = temperature
-            
+        
+        print(f"Tamaño del prompt template: {len(self.prompt_template)} chars")
+        
+        # Check token counts
         token_count = await self.get_token_count(context)
         token_prompt = await self.get_token_count(self.prompt_template)
         token_question = await self.get_token_count(question)
-        if token_count > MODEL_N_CTX - token_prompt:
-            logger.warning(f"Context too large: {token_count+token_prompt} tokens (limit: {MODEL_N_CTX})")
-            
-           
-            limite_tokens = MODEL_N_CTX - token_prompt-token_question
-            
-            raw_tokens = self.llm.client.tokenize(context.encode("utf-8"), add_bos=False)
-            truncated_tokens = raw_tokens[:limite_tokens]
-            logger.info(f"Truncated context from {len(raw_tokens)} to {len(truncated_tokens)} tokens")
-            context = self.llm.client.detokenize(truncated_tokens).decode("utf-8")
-            
-        return await asyncio.to_thread(self.chain.invoke, {"context": context, "question": question})
-        
-    async def generate_direct(self, question: str, temperature: float | None = None) -> str:
-        """Generate answer without RAG context (direct LLM)."""
-        original_temp = None
-        if temperature is not None:
-            original_temp = self.llm.temperature
-            self.llm.temperature = temperature
-            
-        try:
-            simple_prompt = PromptTemplate.from_template(
-                "Pregunta: {question}\n\n"
-                "Eres un asistente de tecnología"
-                "Respuesta:"
-            )
-            chain = simple_prompt | self.llm | StrOutputParser()
-            return await asyncio.to_thread(chain.invoke, {"question": question})
-        finally:
-            if original_temp is not None:
-                self.llm.temperature = original_temp
+        logger.info(f"tokens en el  prompt {token_prompt}")
+        logger.info(f"tokens en la pregunta {token_question}")
 
+        if token_count > MODEL_N_CTX - token_prompt - token_question:
+            logger.warning(f"Contexto muy largo: {token_count+token_prompt+token_question} tokens (limit: {MODEL_N_CTX})")
+            
+            limite_tokens = MODEL_N_CTX - token_prompt - token_question
+            
+            # Truncate context..
+            raw_tokens = self.llm.tokenize(context.encode("utf-8"))
+            truncated_tokens = raw_tokens[:limite_tokens]
+            logger.info(f"Contexto trucado de {len(raw_tokens)} a {len(truncated_tokens)} tokens")
+            context = self.llm.detokenize(truncated_tokens).decode("utf-8")
+            
+        formatted_prompt = self.prompt_template.format(contexto=context,pregunta=question)
+        print(f"Tamaño del Context: {len(context)} chars")
+  
+        return await asyncio.to_thread(self._invoke_llm, formatted_prompt, temperature)
+        
     async def get_token_count(self, text: str) -> int:
-        """Get token count for text."""
+        """Get token count for text using llama.cpp tokenizer."""
         try:
-            return await asyncio.to_thread(self.llm.get_num_tokens, text)
-        except Exception:
-            print("hola")
+            tokens = await asyncio.to_thread(self.llm.tokenize, text.encode("utf-8"))
+            return len(tokens)
+        except Exception as e:
+            logger.warning(f"Could not get token count, using estimation: {e}")
             return max(1, len(text) // 4)
-    def __str__(self) -> str:
-        return f"AnswerGenerator()"
     
+    def __str__(self) -> str:
+        return f"AnswerGenerator(model={self.model_path})"

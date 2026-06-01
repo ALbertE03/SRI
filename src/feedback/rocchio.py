@@ -1,11 +1,3 @@
-"""Rocchio relevance feedback for query reformulation.
-
-Reference:
-    Rocchio, J. (1971). "Relevance feedback in information retrieval."
-    In The SMART Retrieval System: Experiments in Automatic Document Processing.
-"""
-
-from __future__ import annotations
 
 from typing import Dict, List, Optional
 from src.indexing.indexer import TextNormalizer
@@ -47,7 +39,8 @@ class RocchioFeedback:
         self.beta = beta
         self.gamma = gamma
         self.clip_below = clip_below
-
+    def __str__(self) -> str:
+        return f"RocchioFeedback (alpha={self.alpha}, beta={self.beta}, gamma={self.gamma})"
     def _term_vector(self, text: str) -> Dict[str, float]:
         """Convert text to TF-weighted term vector."""
         tokens = self.normalizer.normalize_query(text)

@@ -16,11 +16,14 @@ class DocumentChunker:
     
     def __init__(
         self,
+        normalizer:TextNormalizer,
         chunk_size: int = 1500,
         chunk_overlap: int = 100,
         strategy: str = "sliding",
         min_chunk_size: int = 100,
-    ):
+
+    ):  
+        self.normalizer = normalizer
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.strategy = strategy
@@ -49,7 +52,7 @@ class DocumentChunker:
         elif self.strategy == "paragraph":
             return self._chunk_paragraph(doc, content)
         elif self.strategy == "sliding":
-            return self._chunk_sliding(doc, content,)
+            return self._chunk_sliding(doc, content)
         else:
             return [doc]
     
@@ -71,6 +74,7 @@ class DocumentChunker:
                     "chunk_id": f"{doc.get('id', 'unknown')}_{start}",
                     "chunk_index": len(chunks),
                     "chunk_total": -1,
+                    "tokens":self.normalizer.normalize(chunk_text,stem=True,stopw=True)
                 }
                 chunks.append(chunk_doc)
             
@@ -95,6 +99,7 @@ class DocumentChunker:
                         "chunk_id": f"{doc.get('id', 'unknown')}_{len(chunks)}",
                         "chunk_index": len(chunks),
                         "chunk_total": -1,
+                         "tokens":self.normalizer.normalize(chunk_text,stem=True,stopw=True)
                     })
                 current_chunk = para + "\n\n"
         
@@ -105,6 +110,7 @@ class DocumentChunker:
                 "chunk_id": f"{doc.get('id', 'unknown')}_{len(chunks)}",
                 "chunk_index": len(chunks),
                 "chunk_total": -1,
+                "tokens":self.normalizer.normalize(chunk_text,stem=True,stopw=True)
             })
         
         return chunks if chunks else [doc]
@@ -128,6 +134,7 @@ class DocumentChunker:
                     "chunk_index": chunk_idx,
                     "chunk_start": start,
                     "chunk_end": min(end, len(words)),
+                    "tokens":self.normalizer.normalize(chunk_text,stem=True,stopw=True)
                 }
                 chunks.append(chunk_doc)
                 chunk_idx += 1

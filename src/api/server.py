@@ -19,7 +19,7 @@ from src.config import \
                 INDEX_LANGUAGE,\
                 FORCE,INDEX_SAVE_DIR,DATA_DIR,\
                 MU,MAX_FEATURES,BATCH_SIZE,RESET,RAG_RELEVANCE_THRESHOLD,\
-                MODEL_TEMPERATURE,MODEL_MAX_TOKENS,MODEL_N_CTX,MODEL_VERBOSE
+                MODEL_TEMPERATURE,MODEL_MAX_TOKENS,MODEL_N_CTX,MODEL_VERBOSE,N_THREADS,N_BATCH,N_GPU_LAYERS
 from pathlib import Path             
 from src.vector_db.vector_store import VectorStore
 from src.vector_db.embeddings import TfidfEmbeddings,get_embeddings
@@ -28,10 +28,8 @@ from src.retrieval.query_processor import QueryProcessor
 from src.positioning.ranker import ResultRanker
 from src.utils.model_downloader import ModelDownloader
 from src.rag.rag import RAGPipeline
-import tqdm 
 from src.feedback.rocchio import RocchioFeedback
 from src.generator.answer_generator import AnswerGenerator
-from langchain_community.llms import LlamaCpp
 
 
 
@@ -51,30 +49,32 @@ search_internet=None
 stats =None
 vector_db =None
 chunker=None
-globals={}
+
 
 async def initialize_components(model_path:str,force:bool=False) -> tuple:
     logger.info("Initializing SRI system...")
     indexes_dir = Path(INDEX_SAVE_DIR)
-    logger.info("initializing DocumentChunker")
+    
+    logger.info("Initializing TextNormalizer")
+    normalizer = TextNormalizer(language=INDEX_LANGUAGE)
+    logger.info(f"TextNormalizer initialized -> {normalizer}")
+    logger.info("Initializing DocumentChunker")
     chunker = DocumentChunker(
+        normalizer=normalizer,
         chunk_size=CHUNK_SIZE,
         chunk_overlap=CHUNK_OVERLAP,
         strategy=STRATEGY,
         min_chunk_size=MIN_CHUNK_SIZE
     )
     logger.info(f"DocumentChunker initialized -> {chunker}")
-    logger.info("initializing TextNormalizer")
-    normalizer = TextNormalizer(language=INDEX_LANGUAGE)
-    logger.info(f"TextNormalizer initialized -> {normalizer}")
-
+    logger.info("Initializing RocchioFeedback")
     rocchio = RocchioFeedback(
             normalizer=normalizer,
             alpha=ALPHA,
             beta=BETA,
             gamma=GAMMA,
         )
-        
+    logger.info(f"RocchioFeedback initialized -> {rocchio}")
     indexer=None
     def get_or_create_system(force: bool = False) -> tuple[VectorStore,LMRetriever]:
         lm_path = indexes_dir / "lm"
@@ -136,11 +136,12 @@ async def initialize_components(model_path:str,force:bool=False) -> tuple:
                 embeddings = TfidfEmbeddings(normalizer=normalizer,max_features=MAX_FEATURES)
                 logger.info(f"TF-IDF embeddings initialized -> {embeddings}")
                 
+                
         logger.info(f"Initializing VectorStore")
         vector_store = VectorStore(embeddings=embeddings)
         logger.info(f"VectorStore initialized -> {vector_store}")
 
-        if force or vector_store.stats()["num_documents"] == 0:
+        if (force or vector_store.stats()["num_documents"] == 0) or (isinstance(embeddings,TfidfEmbeddings) and not embeddings._fitted):
            
             chunked_docs = get_chunked_docs()
 
@@ -148,12 +149,12 @@ async def initialize_components(model_path:str,force:bool=False) -> tuple:
                 doc_ids = []
                 texts = []
                 metadata=[]
-                logger.info("processing chunk from embeddings ")
-                for chunk in tqdm.tqdm(chunked_docs, desc="Processing chunks for embeddings", total=len(chunked_docs)):
+                
+                for chunk in chunked_docs:
                     chunk_id = chunk.get("chunk_id", str(chunk.get("id", "")))
                     doc_ids.append(chunk_id)
-                    texts.append(" ".join(normalizer.normalize(chunk.get("content", ""), stopw=False, stem=False)))
-                    metadata.append({"url":chunk.get("url"," "),"title":chunk.get('title','')})
+                    texts.append(" ".join(chunk.get("tokens", "")))
+                    metadata.append({"url":chunk.get("url"," "),"title":chunk.get('title',''),"front_prev":chunk.get("content")})
 
                 if isinstance(embeddings, TfidfEmbeddings):
                     embeddings.fit(texts)
@@ -191,14 +192,17 @@ async def initialize_components(model_path:str,force:bool=False) -> tuple:
     logger.info("Initializing Answer Generator...")
     model_path_resolved = str(ModelDownloader.ensure_model_exists(model_path))
     logger.info(f"Using model: {model_path_resolved}")
-    llm = LlamaCpp(
+
+    generator = AnswerGenerator(
             model_path=model_path_resolved,
-            temperature=MODEL_TEMPERATURE,
-            max_tokens=MODEL_MAX_TOKENS,
             n_ctx=MODEL_N_CTX,
+            n_threads=N_THREADS,
+            n_gpu_layers=N_GPU_LAYERS, 
+            temperature=MODEL_TEMPERATURE,
             verbose=MODEL_VERBOSE,
+            n_batch=N_BATCH,
+            max_token=MODEL_MAX_TOKENS
         )
-    generator = AnswerGenerator(llm=llm)
     logger.info(f"AnswerGenerator initialized -> {generator}")
     logger.info("✓ SRI system initialized successfully")
     return indexer,generator,rag,normalizer,ranker,lm_retrieval,search_internet,vector_db,chunker,rocchio

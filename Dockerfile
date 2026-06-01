@@ -6,12 +6,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN pip install uv
 
-RUN uv pip install --system torch==2.3.1 --index-url https://download.pytorch.org/whl/cpu
+RUN uv pip install --system torch==2.3.1 --index-url https://download.pytorch.org/whl/cu121
 
 WORKDIR /app
 
 COPY pyproject.toml .
 
+RUN uv pip install --system llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121
 
 RUN uv pip install --system -e .
 

@@ -12,13 +12,22 @@ services:
       - ./data:/app/data
       - ./indexes:/app/indexes
       - ./models:/app/models
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
+
+  crawler:
+    build: .
+    volumes:
+      - ./:/app:cached
+      - ./data:/app/data
+    profiles:
+      - tools
+    entrypoint: [ "scrapy", "crawl" ]
 
   ui:
     build: ./ui

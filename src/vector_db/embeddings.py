@@ -38,6 +38,11 @@ class TfidfEmbeddings(Embeddings):
             max_features=self.max_features,
             token_pattern=None,
             lowercase=False,
+            max_df=0.85,
+            sublinear_tf=True,
+            norm='l2',
+            ngram_range=(1,2),
+            min_df=1
         )
         self._fitted = False
 

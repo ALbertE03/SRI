@@ -24,7 +24,7 @@ class WebSearcher:
     def __init__(self, max_results: int | None = None, normalizer: TextNormalizer | None = None, engine: str | None = None):
         raw = (engine or WEB_SEARCH_ENGINE).lower()
         if raw.lower() == "all":
-            self.engines = ["duckduckgo", "yandex", "brave","google","bing"]
+            self.engines = ["duckduckgo",*list(DIRECT_ENGINES.keys())]
         else:
             self.engines = [e.strip() for e in raw.replace(",", " ").split()]
         actual_max_results = max_results if max_results is not None else WEB_SEARCH_MAX_RESULTS
@@ -52,7 +52,7 @@ class WebSearcher:
             if not page_content:
                 continue
             doc = Document(
-                page_content=" ".join(self.normalizer.normalize(page_content)) if self.normalizer else page_content,
+                page_content=page_content,
                 metadata={
                     "title": res.get("title", "Internet Result"),
                     "url": res.get("link", ""),
@@ -70,7 +70,7 @@ class WebSearcher:
         if not content:
             return []
         doc = Document(
-            page_content=" ".join(self.normalizer.normalize(content)) if self.normalizer else content,
+            page_content=content,
             metadata={
                 "title": f"{engine.title()} Search: {query}",
                 "url": url,
@@ -94,4 +94,7 @@ class WebSearcher:
             logger.info(f"Got {len(all_documents)} documents with content across {len(self.engines)} engine(s)")
             return all_documents
         except Exception as exc:
+            print(exc)
             raise WebSearchExecutionError("Error during web search execution.") from exc
+    def __str__(self)->str:
+        return f"WebSearcher(engines: {self.engines})"
