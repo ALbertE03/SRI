@@ -11,7 +11,14 @@ from .items import MobileItem, PCItem
 class DuplicatesPipeline:
     """Drops items with URLs already seen in current and past crawl sessions."""
 
-    def open_spider(self, spider):
+    @classmethod
+    def from_crawler(cls, crawler):
+        pipeline = cls()
+        pipeline.crawler = crawler
+        return pipeline
+
+    def open_spider(self, **kwargs):
+        spider = self.crawler.spider
         self.urls_seen = set()
 
         data_dir_setting = spider.settings.get("DATA_DIR")
@@ -38,12 +45,11 @@ class DuplicatesPipeline:
 
         self.file = open(self.seen_urls_file, "a", encoding="utf-8")
 
-    def close_spider(self, spider):
-
+    def close_spider(self, **kwargs):
         if hasattr(self, "file"):
             self.file.close()
 
-    def process_item(self, item, spider):
+    def process_item(self, item, **kwargs):
         url = item.get("url")
         if not url:
             return item
@@ -62,7 +68,7 @@ class DuplicatesPipeline:
 class TimestampPipeline:
     """Adds a scraped_at ISO timestamp to every item."""
 
-    def process_item(self, item, spider):
+    def process_item(self, item, **kwargs):
         item["scraped_at"] = datetime.now(timezone.utc).isoformat()
         return item
 
@@ -88,7 +94,14 @@ class JsonStoragePipeline:
         "data",
     )
 
-    def open_spider(self, spider):
+    @classmethod
+    def from_crawler(cls, crawler):
+        pipeline = cls()
+        pipeline.crawler = crawler
+        return pipeline
+
+    def open_spider(self, **kwargs):
+        spider = self.crawler.spider
         data_dir = Path(spider.settings.get("DATA_DIR", self.DEFAULT_DATA_DIR))
         date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
@@ -109,10 +122,10 @@ class JsonStoragePipeline:
         self._file = open(filepath, "a", encoding="utf-8")
         spider.logger.info(f"[JsonStoragePipeline] Writing to {filepath}")
 
-    def close_spider(self, spider):
+    def close_spider(self, **kwargs):
         self._file.close()
 
-    def process_item(self, item, spider):
+    def process_item(self, item, **kwargs):
         line = json.dumps(dict(item), ensure_ascii=False)
         self._file.write(line + "\n")
         return item
