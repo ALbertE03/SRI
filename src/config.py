@@ -60,7 +60,7 @@ MODEL_N_CTX = _get_env_int("MODEL_N_CTX", 2048)
 MODEL_VERBOSE = _get_env_bool("MODEL_VERBOSE", False)
 N_BATCH = _get_env_int("N_BATCH",64)
 N_THREADS=_get_env_int("N_THREADS",8)
-N_GPU_LAYERS=_get_env_bool("N_GPU_LAYERS",0)
+N_GPU_LAYERS=_get_env_bool("N_GPU_LAYERS",-1)
 # ============================================================================
 # RAG CONFIGURATION
 # ============================================================================

@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN pip install uv
 
-RUN uv pip install --system torch==2.3.1 --index-url https://download.pytorch.org/whl/cu121
+RUN uv pip install --system torch==2.3.1 
 
 WORKDIR /app
 
